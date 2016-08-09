@@ -8,8 +8,8 @@
 #include <memory>
 #include <string>
 
-#inlcude "flutter/flow/instrumentation.h"
-#inlcude "flutter/flow/raster_cache.h"
+#include "flutter/flow/instrumentation.h"
+#include "flutter/flow/raster_cache.h"
 #include "lib/ftl/macros.h"
 #include "third_party/skia/include/core/SkCanvas.h"
 #include "third_party/skia/include/core/SkPictureRecorder.h"

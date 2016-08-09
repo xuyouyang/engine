@@ -48,7 +48,7 @@ if (is_ios) {
       "//base:base",
       "//mojo/public/cpp/application",
       "//mojo/public/cpp/bindings:bindings",
-      "//flutter/sky//services/activity:interfaces",
+      "//flutter/services/activity:interfaces",
     ]
   }
 }

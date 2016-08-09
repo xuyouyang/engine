@@ -8,7 +8,7 @@
 #include <memory>
 #include <unordered_map>
 
-#inlcude "flutter/flow/instrumentation.h"
+#include "flutter/flow/instrumentation.h"
 #include "lib/ftl/macros.h"
 #include "third_party/skia/include/core/SkImage.h"
 #include "third_party/skia/include/core/SkSize.h"

@@ -21,7 +21,7 @@
 #include "flutter/tonic/dart_library_loader.h"
 #include "flutter/tonic/dart_snapshot_loader.h"
 #include "flutter/tonic/dart_state.h"
-#inlcude "flutter/glue/trace_event.h"
+#include "flutter/glue/trace_event.h"
 #include "lib/ftl/files/eintr_wrapper.h"
 #include "lib/ftl/files/unique_fd.h"
 #include "lib/ftl/logging.h"

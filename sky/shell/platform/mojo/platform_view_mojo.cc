@@ -4,7 +4,7 @@
 
 #include "sky/shell/platform/mojo/platform_view_mojo.h"
 
-#inlcude "flutter/glue/movable_wrapper.h"
+#include "flutter/glue/movable_wrapper.h"
 #include "sky/shell/gpu/mojo/rasterizer_mojo.h"
 
 namespace sky {

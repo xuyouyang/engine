@@ -7,7 +7,7 @@
 #include <utility>
 
 #include "flutter/lib/ui/painting/resource_context.h"
-#inlcude "flutter/glue/movable_wrapper.h"
+#include "flutter/glue/movable_wrapper.h"
 #include "sky/shell/rasterizer.h"
 #include "third_party/skia/include/gpu/gl/GrGLInterface.h"
 

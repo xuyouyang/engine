@@ -8,9 +8,9 @@
 #include <memory>
 #include <vector>
 
-#inlcude "flutter/flow/instrumentation.h"
-#inlcude "flutter/flow/raster_cache.h"
-#inlcude "flutter/glue/trace_event.h"
+#include "flutter/flow/instrumentation.h"
+#include "flutter/flow/raster_cache.h"
+#include "flutter/glue/trace_event.h"
 #include "lib/ftl/logging.h"
 #include "lib/ftl/macros.h"
 #include "third_party/skia/include/core/SkCanvas.h"

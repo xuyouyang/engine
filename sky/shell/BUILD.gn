@@ -191,7 +191,7 @@ if (is_android) {
       "//mojo/services/network/interfaces:interfaces_java",
       "//mojo/services/sensors/interfaces:interfaces_java",
       "//mojo/services/vsync/interfaces:interfaces_java",
-      "//services/sensors:sensors_lib",
+      "//flutter/services/sensors:sensors_lib",
       "//flutter/services/activity:activity_lib",
       "//flutter/services/activity:interfaces_java",
       "//flutter/services/common:common_lib",

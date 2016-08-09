@@ -10,7 +10,7 @@
 #include <queue>
 
 #include "dart/runtime/include/dart_api.h"
-#inlcude "flutter/glue/thread.h"
+#include "flutter/glue/thread.h"
 #include "lib/ftl/macros.h"
 #include "lib/ftl/synchronization/monitor.h"
 

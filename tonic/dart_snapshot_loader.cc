@@ -7,7 +7,7 @@
 #include <utility>
 
 #include "flutter/tonic/dart_state.h"
-#inlcude "flutter/glue/trace_event.h"
+#include "flutter/glue/trace_event.h"
 #include "lib/tonic/converter/dart_converter.h"
 #include "lib/tonic/logging/dart_error.h"
 #include "lib/tonic/scopes/dart_api_scope.h"

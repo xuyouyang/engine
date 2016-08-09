@@ -9,8 +9,8 @@ import "mojo/public/interfaces/application/shell.mojom";
 import "mojo/services/asset_bundle/interfaces/asset_bundle.mojom";
 import "mojo/services/gfx/composition/interfaces/scheduling.mojom";
 import "mojo/services/ui/views/interfaces/views.mojom";
-import "sky/services/engine/input_event.mojom";
-import "sky/services/pointer/pointer.mojom";
+import "flutter/services/engine/input_event.mojom";
+import "flutter/services/pointer/pointer.mojom";
 
 enum AppLifecycleState {
   PAUSED,

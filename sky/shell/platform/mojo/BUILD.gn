@@ -36,7 +36,7 @@ mojo_native_application("mojo") {
     "//mojo/services/input_events/interfaces",
     "//mojo/services/ui/input/interfaces",
     "//mojo/services/ui/views/interfaces",
-    "//services/icu",
+    "//flutter/services/icu",
     "//flutter/skia",
     "//flutter/sky/engine/public/sky",
     "//flutter/sky/engine/web",

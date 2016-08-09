@@ -4,12 +4,12 @@
 
 #include "flutter/lib/ui/painting/image_decoding.h"
 
-#inlcude "flutter/flow/texture_image.h"
+#include "flutter/flow/texture_image.h"
 #include "flutter/lib/ui/painting/image.h"
 #include "flutter/lib/ui/painting/resource_context.h"
-#inlcude "flutter/glue/drain_data_pipe_job.h"
-#inlcude "flutter/glue/movable_wrapper.h"
-#inlcude "flutter/glue/trace_event.h"
+#include "flutter/glue/drain_data_pipe_job.h"
+#include "flutter/glue/movable_wrapper.h"
+#include "flutter/glue/trace_event.h"
 #include "lib/ftl/tasks/task_runner.h"
 #include "lib/tonic/dart_persistent_value.h"
 #include "lib/tonic/logging/dart_invoke.h"

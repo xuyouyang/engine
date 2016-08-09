@@ -5,7 +5,7 @@
 [DartPackage="sky_services"]
 module raw_keyboard;
 
-import "sky/services/engine/input_event.mojom";
+import "flutter/services/engine/input_event.mojom";
 
 interface RawKeyboardListener {
   OnKey(sky.InputEvent event);

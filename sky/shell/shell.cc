@@ -18,7 +18,7 @@
 #include "base/single_thread_task_runner.h"
 #include "base/trace_event/trace_event.h"
 #include "dart/runtime/include/dart_tools_api.h"
-#inlcude "flutter/glue/task_runner_adaptor.h"
+#include "flutter/glue/task_runner_adaptor.h"
 #include "lib/ftl/files/unique_fd.h"
 #include "mojo/message_pump/message_pump_mojo.h"
 #include "flutter/skia/ext/event_tracer_impl.h"
