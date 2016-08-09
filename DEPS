@@ -43,6 +43,8 @@ allowed_hosts = [
 ]
 
 deps = {
+  'src': 'https://github.com/flutter/buildroot.git' + '@' + 'af5d72a1e41672bc07f6ebb9274f9f5b3f835687',
+
    # Fuchsia compatibility
    #
    # The dependencies in this section should match the layout in the Fuchsia gn
