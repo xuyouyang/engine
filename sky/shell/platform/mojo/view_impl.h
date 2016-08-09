@@ -17,8 +17,8 @@
 #include "mojo/services/ui/views/interfaces/view_provider.mojom.h"
 #include "mojo/services/ui/views/interfaces/views.mojom.h"
 #include "flutter/services/raw_keyboard/raw_keyboard.mojom.h"
-#include "sky/shell/platform/mojo/platform_view_mojo.h"
-#include "sky/shell/platform/mojo/pointer_converter_mojo.h"
+#include "flutter/sky/shell/platform/mojo/platform_view_mojo.h"
+#include "flutter/sky/shell/platform/mojo/pointer_converter_mojo.h"
 
 namespace sky {
 namespace shell {

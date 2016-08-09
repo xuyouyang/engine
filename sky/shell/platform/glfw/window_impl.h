@@ -11,8 +11,8 @@
 #include "mojo/common/binding_set.h"
 #include "flutter/services/engine/sky_engine.mojom.h"
 #include "flutter/services/raw_keyboard/raw_keyboard.mojom.h"
-#include "sky/shell/platform_view.h"
-#include "sky/shell/shell_view.h"
+#include "flutter/sky/shell/platform_view.h"
+#include "flutter/sky/shell/shell_view.h"
 
 namespace sky {
 namespace shell {

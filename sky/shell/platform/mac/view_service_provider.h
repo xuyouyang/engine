@@ -10,7 +10,7 @@
 #include "lib/ftl/macros.h"
 #include "mojo/public/cpp/bindings/strong_binding.h"
 #include "mojo/public/interfaces/application/service_provider.mojom.h"
-#include "sky/engine/wtf/Assertions.h"
+#include "flutter/sky/engine/wtf/Assertions.h"
 #include "flutter/services/platform/app_messages.mojom.h"
 
 #if TARGET_OS_IPHONE

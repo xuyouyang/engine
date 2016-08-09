@@ -11,8 +11,8 @@
 #include "mojo/public/interfaces/application/application_connector.mojom.h"
 #include "mojo/services/gfx/composition/interfaces/scenes.mojom.h"
 #include "mojo/skia/ganesh_context.h"
-#include "sky/shell/gpu/mojo/gl_texture_recycler.h"
-#include "sky/shell/rasterizer.h"
+#include "flutter/sky/shell/gpu/mojo/gl_texture_recycler.h"
+#include "flutter/sky/shell/rasterizer.h"
 
 namespace sky {
 namespace shell {

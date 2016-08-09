@@ -8,13 +8,13 @@
 #include "mojo/public/cpp/bindings/interface_request.h"
 #include "flutter/services/engine/input_event.mojom.h"
 #include "flutter/services/pointer/pointer.mojom.h"
-#include "sky/shell/platform/mac/platform_mac.h"
-#include "sky/shell/platform/mac/platform_view_mac.h"
-#include "sky/shell/platform/mac/platform_service_provider.h"
-#include "sky/shell/platform/mac/view_service_provider.h"
-#include "sky/shell/shell.h"
-#include "sky/shell/switches.h"
-#include "sky/shell/ui_delegate.h"
+#include "flutter/sky/shell/platform/mac/platform_mac.h"
+#include "flutter/sky/shell/platform/mac/platform_view_mac.h"
+#include "flutter/sky/shell/platform/mac/platform_service_provider.h"
+#include "flutter/sky/shell/platform/mac/view_service_provider.h"
+#include "flutter/sky/shell/shell.h"
+#include "flutter/sky/shell/switches.h"
+#include "flutter/sky/shell/ui_delegate.h"
 
 static void IgnoreRequest(
     mojo::InterfaceRequest<flutter::platform::ApplicationMessages>) {
