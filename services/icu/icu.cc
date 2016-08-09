@@ -6,7 +6,7 @@
 
 #include "mojo/public/cpp/application/connect.h"
 #include "mojo/services/icu_data/interfaces/icu_data.mojom.h"
-#include "services/icu/constants.h"
+#include "flutter/services/icu/constants.h"
 #include "third_party/icu/source/common/unicode/putil.h"
 #include "third_party/icu/source/common/unicode/udata.h"
 

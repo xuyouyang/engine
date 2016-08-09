@@ -32,6 +32,7 @@ config("inside_blink") {
 config("config") {
   include_dirs = [
     ".",
+    "../..",
     "$root_out_dir",
   ]
 }

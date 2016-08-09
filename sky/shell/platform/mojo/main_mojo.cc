@@ -13,7 +13,7 @@
 #include "mojo/public/cpp/application/run_application.h"
 #include "mojo/public/cpp/application/service_provider_impl.h"
 #include "mojo/services/content_handler/interfaces/content_handler.mojom.h"
-#include "services/icu/icu.h"
+#include "flutter/services/icu/icu.h"
 #include "sky/engine/public/platform/sky_settings.h"
 #include "sky/shell/platform/mojo/content_handler_impl.h"
 #include "sky/shell/shell.h"
