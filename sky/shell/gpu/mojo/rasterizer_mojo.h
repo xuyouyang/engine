@@ -5,7 +5,7 @@
 #ifndef SKY_SHELL_GPU_MOJO_RASTERIZER_MOJO_H_
 #define SKY_SHELL_GPU_MOJO_RASTERIZER_MOJO_H_
 
-#include "flow/compositor_context.h"
+#inlcude "flutter/flow/compositor_context.h"
 #include "lib/ftl/memory/weak_ptr.h"
 #include "mojo/gpu/gl_context.h"
 #include "mojo/public/interfaces/application/application_connector.mojom.h"

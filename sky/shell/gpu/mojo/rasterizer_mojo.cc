@@ -6,7 +6,7 @@
 
 #include <MGL/mgl_echo.h>
 
-#include "glue/trace_event.h"
+#inlcude "flutter/glue/trace_event.h"
 #include "mojo/gpu/gl_texture.h"
 #include "mojo/skia/ganesh_texture_surface.h"
 #include "sky/shell/shell.h"

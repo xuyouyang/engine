@@ -7,7 +7,7 @@
 #include "base/bind.h"
 #include "base/message_loop/message_loop.h"
 #include "base/trace_event/trace_event.h"
-#include "sky/services/rasterizer/rasterizer.mojom.h"
+#include "flutter/services/rasterizer/rasterizer.mojom.h"
 
 namespace sky {
 namespace shell {

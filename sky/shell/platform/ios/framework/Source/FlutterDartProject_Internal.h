@@ -7,7 +7,7 @@
 
 #include "sky/shell/platform/ios/framework/Headers/FlutterDartProject.h"
 
-#include "sky/services/engine/sky_engine.mojom.h"
+#include "flutter/services/engine/sky_engine.mojom.h"
 
 enum VMType {
   // An invalid VM configuration.

@@ -5,7 +5,7 @@
 #include "sky/engine/public/sky/sky_view.h"
 
 #include "flutter/lib/ui/compositing/scene.h"
-#include "glue/trace_event.h"
+#inlcude "flutter/glue/trace_event.h"
 #include "sky/engine/core/script/dart_controller.h"
 #include "sky/engine/core/script/ui_dart_state.h"
 #include "sky/engine/core/window/window.h"

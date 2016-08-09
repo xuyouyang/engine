@@ -37,12 +37,12 @@ mojo_native_application("mojo") {
     "//mojo/services/ui/input/interfaces",
     "//mojo/services/ui/views/interfaces",
     "//services/icu",
-    "//skia",
-    "//sky/engine/public/sky",
-    "//sky/engine/web",
-    "//sky/services/raw_keyboard:interfaces",
-    "//sky/shell:common",
-    "//sky/shell:gpu_mojo",
+    "//flutter/skia",
+    "//flutter/sky/engine/public/sky",
+    "//flutter/sky/engine/web",
+    "//flutter/services/raw_keyboard:interfaces",
+    "//flutter/sky/shell:common",
+    "//flutter/sky/shell:gpu_mojo",
     "//third_party/icu",
   ]
 

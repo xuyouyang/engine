@@ -5,8 +5,8 @@
 #include "sky/shell/platform/ios/framework/Source/FlutterDynamicServiceLoader.h"
 
 #include "base/logging.h"
-#include "sky/services/dynamic/dynamic_service_embedder.h"
-#include "sky/services/dynamic/dynamic_service_definition.h"
+#include "flutter/services/dynamic/dynamic_service_embedder.h"
+#include "flutter/services/dynamic/dynamic_service_definition.h"
 #include <Foundation/Foundation.h>
 
 #include <dlfcn.h>

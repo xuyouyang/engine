@@ -33,7 +33,7 @@
 
 #include "sky/engine/wtf/Assertions.h"
 
-#include "glue/stack_trace.h"
+#inlcude "flutter/glue/stack_trace.h"
 #include "sky/engine/wtf/Compiler.h"
 #include "sky/engine/wtf/OwnPtr.h"
 #include "sky/engine/wtf/PassOwnPtr.h"

@@ -31,7 +31,7 @@
 #include "sky/engine/public/web/Sky.h"
 
 #include "base/message_loop/message_loop.h"
-#include "glue/trace_event.h"
+#inlcude "flutter/glue/trace_event.h"
 #include "lib/tonic/dart_microtask_queue.h"
 #include "mojo/message_pump/message_pump_mojo.h"
 #include "sky/engine/core/Init.h"

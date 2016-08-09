@@ -4,7 +4,7 @@
 
 #include "sky/shell/gpu/direct/rasterizer_direct.h"
 
-#include "glue/trace_event.h"
+#inlcude "flutter/glue/trace_event.h"
 #include "mojo/public/cpp/system/data_pipe.h"
 #include "sky/engine/wtf/PassRefPtr.h"
 #include "sky/engine/wtf/RefPtr.h"

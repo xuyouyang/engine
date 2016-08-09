@@ -11,7 +11,7 @@
 #include "flutter/tonic/dart_library_loader.h"
 #include "flutter/tonic/dart_snapshot_loader.h"
 #include "flutter/tonic/dart_state.h"
-#include "glue/trace_event.h"
+#inlcude "flutter/glue/trace_event.h"
 #include "lib/tonic/dart_class_library.h"
 #include "lib/tonic/dart_message_handler.h"
 #include "lib/tonic/dart_wrappable.h"
