@@ -1,25 +1,28 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Flutter Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "flutter/lib/ui/painting/path.h"
 
+#define _USE_MATH_DEFINES
 #include <math.h>
 
 #include "flutter/lib/ui/painting/matrix.h"
-#include "lib/tonic/converter/dart_converter.h"
-#include "lib/tonic/dart_args.h"
-#include "lib/tonic/dart_binding_macros.h"
-#include "lib/tonic/dart_library_natives.h"
+#include "flutter/lib/ui/ui_dart_state.h"
+#include "third_party/tonic/converter/dart_converter.h"
+#include "third_party/tonic/dart_args.h"
+#include "third_party/tonic/dart_binding_macros.h"
+#include "third_party/tonic/dart_library_natives.h"
 
 using tonic::ToDart;
 
-namespace blink {
+namespace flutter {
 
 typedef CanvasPath Path;
 
 static void Path_constructor(Dart_NativeArguments args) {
-  DartCallConstructor(&CanvasPath::Create, args);
+  UIDartState::ThrowIfUIOperationsProhibited();
+  DartCallConstructor(&CanvasPath::CreateNew, args);
 }
 
 IMPLEMENT_WRAPPERTYPEINFO(ui, Path);
@@ -38,6 +41,7 @@ IMPLEMENT_WRAPPERTYPEINFO(ui, Path);
   V(Path, contains)                  \
   V(Path, cubicTo)                   \
   V(Path, extendWithPath)            \
+  V(Path, extendWithPathAndMatrix)   \
   V(Path, getFillType)               \
   V(Path, lineTo)                    \
   V(Path, moveTo)                    \
@@ -51,7 +55,11 @@ IMPLEMENT_WRAPPERTYPEINFO(ui, Path);
   V(Path, reset)                     \
   V(Path, setFillType)               \
   V(Path, shift)                     \
-  V(Path, transform)
+  V(Path, transform)                 \
+  V(Path, getBounds)                 \
+  V(Path, addPathWithMatrix)         \
+  V(Path, op)                        \
+  V(Path, clone)
 
 FOR_EACH_BINDING(DART_NATIVE_CALLBACK)
 
@@ -65,11 +73,11 @@ CanvasPath::CanvasPath() {}
 CanvasPath::~CanvasPath() {}
 
 int CanvasPath::getFillType() {
-  return path_.getFillType();
+  return static_cast<int>(path_.getFillType());
 }
 
 void CanvasPath::setFillType(int fill_type) {
-  path_.setFillType(static_cast<SkPath::FillType>(fill_type));
+  path_.setFillType(static_cast<SkPathFillType>(fill_type));
 }
 
 void CanvasPath::moveTo(float x, float y) {
@@ -150,9 +158,8 @@ void CanvasPath::arcToPoint(float arcEndX,
                             bool isClockwiseDirection) {
   const auto arcSize = isLargeArc ? SkPath::ArcSize::kLarge_ArcSize
                                   : SkPath::ArcSize::kSmall_ArcSize;
-  const auto direction = isClockwiseDirection
-                             ? SkPath::Direction::kCW_Direction
-                             : SkPath::Direction::kCCW_Direction;
+  const auto direction =
+      isClockwiseDirection ? SkPathDirection::kCW : SkPathDirection::kCCW;
 
   path_.arcTo(radiusX, radiusY, xAxisRotation, arcSize, direction, arcEndX,
               arcEndY);
@@ -167,9 +174,8 @@ void CanvasPath::relativeArcToPoint(float arcEndDeltaX,
                                     bool isClockwiseDirection) {
   const auto arcSize = isLargeArc ? SkPath::ArcSize::kLarge_ArcSize
                                   : SkPath::ArcSize::kSmall_ArcSize;
-  const auto direction = isClockwiseDirection
-                             ? SkPath::Direction::kCW_Direction
-                             : SkPath::Direction::kCCW_Direction;
+  const auto direction =
+      isClockwiseDirection ? SkPathDirection::kCW : SkPathDirection::kCCW;
   path_.rArcTo(radiusX, radiusY, xAxisRotation, arcSize, direction,
                arcEndDeltaX, arcEndDeltaY);
 }
@@ -202,16 +208,54 @@ void CanvasPath::addRRect(const RRect& rrect) {
 }
 
 void CanvasPath::addPath(CanvasPath* path, double dx, double dy) {
-  if (!path)
+  if (!path) {
     Dart_ThrowException(ToDart("Path.addPath called with non-genuine Path."));
+    return;
+  }
   path_.addPath(path->path(), dx, dy, SkPath::kAppend_AddPathMode);
 }
 
+void CanvasPath::addPathWithMatrix(CanvasPath* path,
+                                   double dx,
+                                   double dy,
+                                   tonic::Float64List& matrix4) {
+  if (!path) {
+    Dart_ThrowException(
+        ToDart("Path.addPathWithMatrix called with non-genuine Path."));
+    return;
+  }
+
+  SkMatrix matrix = ToSkMatrix(matrix4);
+  matrix.setTranslateX(matrix.getTranslateX() + dx);
+  matrix.setTranslateY(matrix.getTranslateY() + dy);
+  path_.addPath(path->path(), matrix, SkPath::kAppend_AddPathMode);
+  matrix4.Release();
+}
+
 void CanvasPath::extendWithPath(CanvasPath* path, double dx, double dy) {
-  if (!path)
+  if (!path) {
     Dart_ThrowException(
         ToDart("Path.extendWithPath called with non-genuine Path."));
+    return;
+  }
   path_.addPath(path->path(), dx, dy, SkPath::kExtend_AddPathMode);
+}
+
+void CanvasPath::extendWithPathAndMatrix(CanvasPath* path,
+                                         double dx,
+                                         double dy,
+                                         tonic::Float64List& matrix4) {
+  if (!path) {
+    Dart_ThrowException(
+        ToDart("Path.addPathWithMatrix called with non-genuine Path."));
+    return;
+  }
+
+  SkMatrix matrix = ToSkMatrix(matrix4);
+  matrix.setTranslateX(matrix.getTranslateX() + dx);
+  matrix.setTranslateY(matrix.getTranslateY() + dy);
+  path_.addPath(path->path(), matrix, SkPath::kExtend_AddPathMode);
+  matrix4.Release();
 }
 
 void CanvasPath::close() {
@@ -226,17 +270,45 @@ bool CanvasPath::contains(double x, double y) {
   return path_.contains(x, y);
 }
 
-fxl::RefPtr<CanvasPath> CanvasPath::shift(double dx, double dy) {
-  fxl::RefPtr<CanvasPath> path = CanvasPath::Create();
+void CanvasPath::shift(Dart_Handle path_handle, double dx, double dy) {
+  fml::RefPtr<CanvasPath> path = CanvasPath::Create(path_handle);
   path_.offset(dx, dy, &path->path_);
-  return path;
 }
 
-fxl::RefPtr<CanvasPath> CanvasPath::transform(tonic::Float64List& matrix4) {
-  fxl::RefPtr<CanvasPath> path = CanvasPath::Create();
+void CanvasPath::transform(Dart_Handle path_handle,
+                           tonic::Float64List& matrix4) {
+  fml::RefPtr<CanvasPath> path = CanvasPath::Create(path_handle);
   path_.transform(ToSkMatrix(matrix4), &path->path_);
   matrix4.Release();
-  return path;
 }
 
-}  // namespace blink
+tonic::Float32List CanvasPath::getBounds() {
+  tonic::Float32List rect(Dart_NewTypedData(Dart_TypedData_kFloat32, 4));
+  const SkRect& bounds = path_.getBounds();
+  rect[0] = bounds.left();
+  rect[1] = bounds.top();
+  rect[2] = bounds.right();
+  rect[3] = bounds.bottom();
+  return rect;
+}
+
+bool CanvasPath::op(CanvasPath* path1, CanvasPath* path2, int operation) {
+  return Op(path1->path(), path2->path(), static_cast<SkPathOp>(operation),
+            &path_);
+}
+
+void CanvasPath::clone(Dart_Handle path_handle) {
+  fml::RefPtr<CanvasPath> path = CanvasPath::Create(path_handle);
+  // per Skia docs, this will create a fast copy
+  // data is shared until the source path or dest path are mutated
+  path->path_ = path_;
+}
+
+// This is doomed to be called too early, since Paths are mutable.
+// However, it can help for some of the clone/shift/transform type methods
+// where the resultant path will initially have a meaningful size.
+size_t CanvasPath::GetAllocationSize() const {
+  return sizeof(CanvasPath) + path_.approximateBytesUsed();
+}
+
+}  // namespace flutter

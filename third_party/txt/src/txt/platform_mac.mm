@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Flutter Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -16,12 +16,16 @@
 
 namespace txt {
 
-std::string GetDefaultFontFamily() {
+std::vector<std::string> GetDefaultFontFamilies() {
   if (fml::IsPlatformVersionAtLeast(9)) {
-    return [FONT_CLASS systemFontOfSize:14].familyName.UTF8String;
+    return {[FONT_CLASS systemFontOfSize:14].familyName.UTF8String};
   } else {
-    return "Helvetica";
+    return {"Helvetica"};
   }
+}
+
+sk_sp<SkFontMgr> GetDefaultFontManager() {
+  return SkFontMgr::RefDefault();
 }
 
 }  // namespace txt

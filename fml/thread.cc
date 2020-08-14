@@ -1,13 +1,17 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Flutter Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#define FML_USED_ON_EMBEDDER
+
 #include "flutter/fml/thread.h"
 
-#include "lib/fxl/build_config.h"
+#include "flutter/fml/build_config.h"
 
 #if defined(OS_WIN)
 #include <windows.h>
+#elif defined(OS_FUCHSIA)
+#include <lib/zx/thread.h>
 #else
 #include <pthread.h>
 #endif
@@ -16,13 +20,13 @@
 #include <string>
 
 #include "flutter/fml/message_loop.h"
-#include "lib/fxl/synchronization/waitable_event.h"
+#include "flutter/fml/synchronization/waitable_event.h"
 
 namespace fml {
 
 Thread::Thread(const std::string& name) : joined_(false) {
-  fxl::AutoResetWaitableEvent latch;
-  fxl::RefPtr<fxl::TaskRunner> runner;
+  fml::AutoResetWaitableEvent latch;
+  fml::RefPtr<fml::TaskRunner> runner;
   thread_ = std::make_unique<std::thread>([&latch, &runner, name]() -> void {
     SetCurrentThreadName(name);
     fml::MessageLoop::EnsureInitializedForCurrentThread();
@@ -39,7 +43,7 @@ Thread::~Thread() {
   Join();
 }
 
-fxl::RefPtr<fxl::TaskRunner> Thread::GetTaskRunner() const {
+fml::RefPtr<fml::TaskRunner> Thread::GetTaskRunner() const {
   return task_runner_;
 }
 
@@ -68,11 +72,11 @@ void Thread::SetCurrentThreadName(const std::string& name) {
   if (name == "") {
     return;
   }
-#if OS_MACOSX
+#if defined(OS_MACOSX)
   pthread_setname_np(name.c_str());
-#elif OS_LINUX || OS_ANDROID
+#elif defined(OS_LINUX) || defined(OS_ANDROID)
   pthread_setname_np(pthread_self(), name.c_str());
-#elif OS_WIN
+#elif defined(OS_WIN)
   THREADNAME_INFO info;
   info.dwType = 0x1000;
   info.szName = name.c_str();
@@ -83,8 +87,11 @@ void Thread::SetCurrentThreadName(const std::string& name) {
                    reinterpret_cast<DWORD_PTR*>(&info));
   } __except (EXCEPTION_CONTINUE_EXECUTION) {
   }
+#elif defined(OS_FUCHSIA)
+  zx::thread::self()->set_property(ZX_PROP_NAME, name.c_str(), name.size());
 #else
-#error Unsupported Platform
+  FML_DLOG(INFO) << "Could not set the thread name to '" << name
+                 << "' on this platform.";
 #endif
 }
 

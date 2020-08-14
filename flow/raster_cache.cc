@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Flutter Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,22 +6,39 @@
 
 #include <vector>
 
-#include "flutter/common/threads.h"
+#include "flutter/flow/layers/layer.h"
 #include "flutter/flow/paint_utils.h"
-#include "flutter/glue/trace_event.h"
-#include "lib/fxl/logging.h"
+#include "flutter/fml/logging.h"
+#include "flutter/fml/trace_event.h"
 #include "third_party/skia/include/core/SkCanvas.h"
-#include "third_party/skia/include/core/SkColorSpaceXformCanvas.h"
 #include "third_party/skia/include/core/SkImage.h"
 #include "third_party/skia/include/core/SkPicture.h"
 #include "third_party/skia/include/core/SkSurface.h"
+#include "third_party/skia/include/gpu/GrDirectContext.h"
 
-namespace flow {
+namespace flutter {
 
-RasterCache::RasterCache(size_t threshold)
-    : threshold_(threshold), checkerboard_images_(false), weak_factory_(this) {}
+RasterCacheResult::RasterCacheResult(sk_sp<SkImage> image,
+                                     const SkRect& logical_rect)
+    : image_(std::move(image)), logical_rect_(logical_rect) {}
 
-RasterCache::~RasterCache() = default;
+void RasterCacheResult::draw(SkCanvas& canvas, const SkPaint* paint) const {
+  TRACE_EVENT0("flutter", "RasterCacheResult::draw");
+  SkAutoCanvasRestore auto_restore(&canvas, true);
+  SkIRect bounds =
+      RasterCache::GetDeviceBounds(logical_rect_, canvas.getTotalMatrix());
+  FML_DCHECK(
+      std::abs(bounds.size().width() - image_->dimensions().width()) <= 1 &&
+      std::abs(bounds.size().height() - image_->dimensions().height()) <= 1);
+  canvas.resetMatrix();
+  canvas.drawImage(image_, bounds.fLeft, bounds.fTop, paint);
+}
+
+RasterCache::RasterCache(size_t access_threshold,
+                         size_t picture_cache_limit_per_frame)
+    : access_threshold_(access_threshold),
+      picture_cache_limit_per_frame_(picture_cache_limit_per_frame),
+      checkerboard_images_(false) {}
 
 static bool CanRasterizePicture(SkPicture* picture) {
   if (picture == nullptr) {
@@ -66,39 +83,22 @@ static bool IsPictureWorthRasterizing(SkPicture* picture,
 
   // TODO(abarth): We should find a better heuristic here that lets us avoid
   // wasting memory on trivial layers that are easy to re-rasterize every frame.
-  return picture->approximateOpCount() > 10;
+  return picture->approximateOpCount() > 5;
 }
 
-RasterCacheResult RasterizePicture(SkPicture* picture,
-                                   GrContext* context,
-                                   const MatrixDecomposition& matrix,
-                                   SkColorSpace* dst_color_space,
-#if defined(OS_FUCHSIA)
-                                   gfx::Metrics* metrics,
-#endif
-                                   bool checkerboard) {
+/// @note Procedure doesn't copy all closures.
+static std::unique_ptr<RasterCacheResult> Rasterize(
+    GrDirectContext* context,
+    const SkMatrix& ctm,
+    SkColorSpace* dst_color_space,
+    bool checkerboard,
+    const SkRect& logical_rect,
+    const std::function<void(SkCanvas*)>& draw_function) {
   TRACE_EVENT0("flutter", "RasterCachePopulate");
-
-  const SkVector3& scale = matrix.scale();
-
-  const SkRect logical_rect = picture->cullRect();
-
-#if defined(OS_FUCHSIA)
-  float metrics_scale_x = metrics->scale_x;
-  float metrics_scale_y = metrics->scale_y;
-#else
-  float metrics_scale_x = 1.f;
-  float metrics_scale_y = 1.f;
-#endif
-
-  const SkRect physical_rect = SkRect::MakeWH(
-      std::fabs(logical_rect.width() * metrics_scale_x * scale.x()),
-      std::fabs(logical_rect.height() * metrics_scale_y * scale.y()));
+  SkIRect cache_rect = RasterCache::GetDeviceBounds(logical_rect, ctm);
 
   const SkImageInfo image_info = SkImageInfo::MakeN32Premul(
-      std::ceil(physical_rect.width()),  // physical width
-      std::ceil(physical_rect.height())  // physical height
-  );
+      cache_rect.width(), cache_rect.height(), sk_ref_sp(dst_color_space));
 
   sk_sp<SkSurface> surface =
       context
@@ -106,61 +106,93 @@ RasterCacheResult RasterizePicture(SkPicture* picture,
           : SkSurface::MakeRaster(image_info);
 
   if (!surface) {
-    return {};
+    return nullptr;
   }
 
   SkCanvas* canvas = surface->getCanvas();
-  std::unique_ptr<SkCanvas> xformCanvas;
-  if (dst_color_space) {
-    xformCanvas = SkCreateColorSpaceXformCanvas(surface->getCanvas(),
-                                                sk_ref_sp(dst_color_space));
-    if (xformCanvas) {
-      canvas = xformCanvas.get();
-    }
-  }
-
   canvas->clear(SK_ColorTRANSPARENT);
-  canvas->scale(std::abs(scale.x() * metrics_scale_x),
-                std::abs(scale.y() * metrics_scale_y));
-  canvas->translate(-logical_rect.left(), -logical_rect.top());
-  canvas->drawPicture(picture);
+  canvas->translate(-cache_rect.left(), -cache_rect.top());
+  canvas->concat(ctm);
+  draw_function(canvas);
 
   if (checkerboard) {
     DrawCheckerboard(canvas, logical_rect);
   }
 
-  return {
-      surface->makeImageSnapshot(),  // image
-      physical_rect,                 // source rect
-      logical_rect                   // destination rect
-  };
+  return std::make_unique<RasterCacheResult>(surface->makeImageSnapshot(),
+                                             logical_rect);
 }
 
-static inline size_t ClampSize(size_t value, size_t min, size_t max) {
-  if (value > max) {
-    return max;
-  }
-
-  if (value < min) {
-    return min;
-  }
-
-  return value;
-}
-
-RasterCacheResult RasterCache::GetPrerolledImage(
-    GrContext* context,
+std::unique_ptr<RasterCacheResult> RasterCache::RasterizePicture(
     SkPicture* picture,
-    const SkMatrix& transformation_matrix,
+    GrDirectContext* context,
+    const SkMatrix& ctm,
     SkColorSpace* dst_color_space,
-#if defined(OS_FUCHSIA)
-    gfx::Metrics* metrics,
-#endif
-    bool is_complex,
-    bool will_change) {
+    bool checkerboard) const {
+  return Rasterize(context, ctm, dst_color_space, checkerboard,
+                   picture->cullRect(),
+                   [=](SkCanvas* canvas) { canvas->drawPicture(picture); });
+}
+
+void RasterCache::Prepare(PrerollContext* context,
+                          Layer* layer,
+                          const SkMatrix& ctm) {
+  LayerRasterCacheKey cache_key(layer->unique_id(), ctm);
+  Entry& entry = layer_cache_[cache_key];
+  entry.access_count++;
+  entry.used_this_frame = true;
+  if (!entry.image) {
+    entry.image = RasterizeLayer(context, layer, ctm, checkerboard_images_);
+  }
+}
+
+std::unique_ptr<RasterCacheResult> RasterCache::RasterizeLayer(
+    PrerollContext* context,
+    Layer* layer,
+    const SkMatrix& ctm,
+    bool checkerboard) const {
+  return Rasterize(
+      context->gr_context, ctm, context->dst_color_space, checkerboard,
+      layer->paint_bounds(), [layer, context](SkCanvas* canvas) {
+        SkISize canvas_size = canvas->getBaseLayerSize();
+        SkNWayCanvas internal_nodes_canvas(canvas_size.width(),
+                                           canvas_size.height());
+        internal_nodes_canvas.addCanvas(canvas);
+        Layer::PaintContext paintContext = {
+            /* internal_nodes_canvas= */ static_cast<SkCanvas*>(
+                &internal_nodes_canvas),
+            /* leaf_nodes_canvas= */ canvas,
+            /* gr_context= */ context->gr_context,
+            /* view_embedder= */ nullptr,
+            context->raster_time,
+            context->ui_time,
+            context->texture_registry,
+            context->has_platform_view ? nullptr : context->raster_cache,
+            context->checkerboard_offscreen_layers,
+            context->frame_physical_depth,
+            context->frame_device_pixel_ratio};
+        if (layer->needs_painting()) {
+          layer->Paint(paintContext);
+        }
+      });
+}
+
+bool RasterCache::Prepare(GrDirectContext* context,
+                          SkPicture* picture,
+                          const SkMatrix& transformation_matrix,
+                          SkColorSpace* dst_color_space,
+                          bool is_complex,
+                          bool will_change) {
+  // Disabling caching when access_threshold is zero is historic behavior.
+  if (access_threshold_ == 0) {
+    return false;
+  }
+  if (picture_cached_this_frame_ >= picture_cache_limit_per_frame_) {
+    return false;
+  }
   if (!IsPictureWorthRasterizing(picture, will_change, is_complex)) {
     // We only deal with pictures that are worthy of rasterization.
-    return {};
+    return false;
   }
 
   // Decompose the matrix (once) for all subsequent operations. We want to make
@@ -169,53 +201,88 @@ RasterCacheResult RasterCache::GetPrerolledImage(
 
   if (!matrix.IsValid()) {
     // The matrix was singular. No point in going further.
-    return {};
+    return false;
   }
 
-  RasterCacheKey cache_key(*picture,
-#if defined(OS_FUCHSIA)
-                           metrics->scale_x, metrics->scale_y,
-#endif
-                           matrix);
+  PictureRasterCacheKey cache_key(picture->uniqueID(), transformation_matrix);
 
-  Entry& entry = cache_[cache_key];
-  entry.access_count = ClampSize(entry.access_count + 1, 0, threshold_);
+  // Creates an entry, if not present prior.
+  Entry& entry = picture_cache_[cache_key];
+  if (entry.access_count < access_threshold_) {
+    // Frame threshold has not yet been reached.
+    return false;
+  }
+
+  if (!entry.image) {
+    entry.image = RasterizePicture(picture, context, transformation_matrix,
+                                   dst_color_space, checkerboard_images_);
+    picture_cached_this_frame_++;
+  }
+  return true;
+}
+
+bool RasterCache::Draw(const SkPicture& picture, SkCanvas& canvas) const {
+  PictureRasterCacheKey cache_key(picture.uniqueID(), canvas.getTotalMatrix());
+  auto it = picture_cache_.find(cache_key);
+  if (it == picture_cache_.end()) {
+    return false;
+  }
+
+  Entry& entry = it->second;
+  entry.access_count++;
   entry.used_this_frame = true;
 
-  if (entry.access_count < threshold_ || threshold_ == 0) {
-    // Frame threshold has not yet been reached.
-    return {};
+  if (entry.image) {
+    entry.image->draw(canvas, nullptr);
+    return true;
   }
 
-  if (!entry.image.is_valid()) {
-    entry.image = RasterizePicture(picture, context, matrix, dst_color_space,
-#if defined(OS_FUCHSIA)
-                                   metrics,
-#endif
-                                   checkerboard_images_);
+  return false;
+}
+
+bool RasterCache::Draw(const Layer* layer,
+                       SkCanvas& canvas,
+                       SkPaint* paint) const {
+  LayerRasterCacheKey cache_key(layer->unique_id(), canvas.getTotalMatrix());
+  auto it = layer_cache_.find(cache_key);
+  if (it == layer_cache_.end()) {
+    return false;
   }
 
-  return entry.image;
+  Entry& entry = it->second;
+  entry.access_count++;
+  entry.used_this_frame = true;
+
+  if (entry.image) {
+    entry.image->draw(canvas, paint);
+    return true;
+  }
+
+  return false;
 }
 
 void RasterCache::SweepAfterFrame() {
-  std::vector<RasterCacheKey::Map<Entry>::iterator> dead;
-
-  for (auto it = cache_.begin(); it != cache_.end(); ++it) {
-    Entry& entry = it->second;
-    if (!entry.used_this_frame) {
-      dead.push_back(it);
-    }
-    entry.used_this_frame = false;
-  }
-
-  for (auto it : dead) {
-    cache_.erase(it);
-  }
+  SweepOneCacheAfterFrame(picture_cache_);
+  SweepOneCacheAfterFrame(layer_cache_);
+  picture_cached_this_frame_ = 0;
+  TraceStatsToTimeline();
 }
 
 void RasterCache::Clear() {
-  cache_.clear();
+  picture_cache_.clear();
+  layer_cache_.clear();
+}
+
+size_t RasterCache::GetCachedEntriesCount() const {
+  return layer_cache_.size() + picture_cache_.size();
+}
+
+size_t RasterCache::GetLayerCachedEntriesCount() const {
+  return layer_cache_.size();
+}
+
+size_t RasterCache::GetPictureCachedEntriesCount() const {
+  return picture_cache_.size();
 }
 
 void RasterCache::SetCheckboardCacheImages(bool checkerboard) {
@@ -230,4 +297,36 @@ void RasterCache::SetCheckboardCacheImages(bool checkerboard) {
   Clear();
 }
 
-}  // namespace flow
+void RasterCache::TraceStatsToTimeline() const {
+#if !FLUTTER_RELEASE
+  constexpr double kMegaBytes = (1 << 20);
+  FML_TRACE_COUNTER("flutter", "RasterCache", reinterpret_cast<int64_t>(this),
+                    "LayerCount", layer_cache_.size(), "LayerMBytes",
+                    EstimateLayerCacheByteSize() / kMegaBytes, "PictureCount",
+                    picture_cache_.size(), "PictureMBytes",
+                    EstimatePictureCacheByteSize() / kMegaBytes);
+
+#endif  // !FLUTTER_RELEASE
+}
+
+size_t RasterCache::EstimateLayerCacheByteSize() const {
+  size_t layer_cache_bytes = 0;
+  for (const auto& item : layer_cache_) {
+    if (item.second.image) {
+      layer_cache_bytes += item.second.image->image_bytes();
+    }
+  }
+  return layer_cache_bytes;
+}
+
+size_t RasterCache::EstimatePictureCacheByteSize() const {
+  size_t picture_cache_bytes = 0;
+  for (const auto& item : picture_cache_) {
+    if (item.second.image) {
+      picture_cache_bytes += item.second.image->image_bytes();
+    }
+  }
+  return picture_cache_bytes;
+}
+
+}  // namespace flutter

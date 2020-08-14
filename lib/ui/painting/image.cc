@@ -1,18 +1,16 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Flutter Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "flutter/lib/ui/painting/image.h"
 
-#include "flutter/common/threads.h"
 #include "flutter/lib/ui/painting/image_encoding.h"
-#include "flutter/lib/ui/painting/utils.h"
-#include "lib/tonic/converter/dart_converter.h"
-#include "lib/tonic/dart_args.h"
-#include "lib/tonic/dart_binding_macros.h"
-#include "lib/tonic/dart_library_natives.h"
+#include "third_party/tonic/converter/dart_converter.h"
+#include "third_party/tonic/dart_args.h"
+#include "third_party/tonic/dart_binding_macros.h"
+#include "third_party/tonic/dart_library_natives.h"
 
-namespace blink {
+namespace flutter {
 
 typedef CanvasImage Image;
 
@@ -30,30 +28,28 @@ void CanvasImage::RegisterNatives(tonic::DartLibraryNatives* natives) {
   natives->Register({FOR_EACH_BINDING(DART_REGISTER_NATIVE)});
 }
 
-CanvasImage::CanvasImage() {}
+CanvasImage::CanvasImage() = default;
 
-CanvasImage::~CanvasImage() {
-  // Skia objects must be deleted on the IO thread so that any associated GL
-  // objects will be cleaned up through the IO thread's GL context.
-  SkiaUnrefOnIOThread(&image_);
-}
+CanvasImage::~CanvasImage() = default;
 
-Dart_Handle CanvasImage::toByteData(int format,
-                                    int quality,
-                                    Dart_Handle callback) {
-  return EncodeImage(this, format, quality, callback);
+Dart_Handle CanvasImage::toByteData(int format, Dart_Handle callback) {
+  return EncodeImage(this, format, callback);
 }
 
 void CanvasImage::dispose() {
+  image_.reset();
   ClearDartWrapper();
 }
 
-size_t CanvasImage::GetAllocationSize() {
-  if (image_) {
-    return image_->width() * image_->height() * 4;
+size_t CanvasImage::GetAllocationSize() const {
+  if (auto image = image_.get()) {
+    const auto& info = image->imageInfo();
+    const auto kMipmapOverhead = 4.0 / 3.0;
+    const size_t image_byte_size = info.computeMinByteSize() * kMipmapOverhead;
+    return image_byte_size + sizeof(this);
   } else {
     return sizeof(CanvasImage);
   }
 }
 
-}  // namespace blink
+}  // namespace flutter

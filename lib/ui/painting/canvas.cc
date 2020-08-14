@@ -1,29 +1,32 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Flutter Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "flutter/lib/ui/painting/canvas.h"
 
+#define _USE_MATH_DEFINES
 #include <math.h>
 
 #include "flutter/flow/layers/physical_shape_layer.h"
 #include "flutter/lib/ui/painting/image.h"
 #include "flutter/lib/ui/painting/matrix.h"
 #include "flutter/lib/ui/ui_dart_state.h"
+#include "flutter/lib/ui/window/platform_configuration.h"
 #include "flutter/lib/ui/window/window.h"
-#include "lib/tonic/converter/dart_converter.h"
-#include "lib/tonic/dart_args.h"
-#include "lib/tonic/dart_binding_macros.h"
-#include "lib/tonic/dart_library_natives.h"
 #include "third_party/skia/include/core/SkBitmap.h"
 #include "third_party/skia/include/core/SkCanvas.h"
 #include "third_party/skia/include/core/SkRSXform.h"
+#include "third_party/tonic/converter/dart_converter.h"
+#include "third_party/tonic/dart_args.h"
+#include "third_party/tonic/dart_binding_macros.h"
+#include "third_party/tonic/dart_library_natives.h"
 
 using tonic::ToDart;
 
-namespace blink {
+namespace flutter {
 
 static void Canvas_constructor(Dart_NativeArguments args) {
+  UIDartState::ThrowIfUIOperationsProhibited();
   DartCallConstructor(&Canvas::Create, args);
 }
 
@@ -69,16 +72,17 @@ void Canvas::RegisterNatives(tonic::DartLibraryNatives* natives) {
                      FOR_EACH_BINDING(DART_REGISTER_NATIVE)});
 }
 
-fxl::RefPtr<Canvas> Canvas::Create(PictureRecorder* recorder,
+fml::RefPtr<Canvas> Canvas::Create(PictureRecorder* recorder,
                                    double left,
                                    double top,
                                    double right,
                                    double bottom) {
-  if (!recorder)
+  if (!recorder) {
     Dart_ThrowException(
         ToDart("Canvas constructor called with non-genuine PictureRecorder."));
-  FXL_DCHECK(!recorder->isRecording());  // verified by Dart code
-  fxl::RefPtr<Canvas> canvas = fxl::MakeRefCounted<Canvas>(
+    return nullptr;
+  }
+  fml::RefPtr<Canvas> canvas = fml::MakeRefCounted<Canvas>(
       recorder->BeginRecording(SkRect::MakeLTRB(left, top, right, bottom)));
   recorder->set_canvas(canvas);
   return canvas;
@@ -89,15 +93,17 @@ Canvas::Canvas(SkCanvas* canvas) : canvas_(canvas) {}
 Canvas::~Canvas() {}
 
 void Canvas::save() {
-  if (!canvas_)
+  if (!canvas_) {
     return;
+  }
   canvas_->save();
 }
 
 void Canvas::saveLayerWithoutBounds(const Paint& paint,
                                     const PaintData& paint_data) {
-  if (!canvas_)
+  if (!canvas_) {
     return;
+  }
   canvas_->saveLayer(nullptr, paint.paint());
 }
 
@@ -107,51 +113,59 @@ void Canvas::saveLayer(double left,
                        double bottom,
                        const Paint& paint,
                        const PaintData& paint_data) {
-  if (!canvas_)
+  if (!canvas_) {
     return;
+  }
   SkRect bounds = SkRect::MakeLTRB(left, top, right, bottom);
   canvas_->saveLayer(&bounds, paint.paint());
 }
 
 void Canvas::restore() {
-  if (!canvas_)
+  if (!canvas_) {
     return;
+  }
   canvas_->restore();
 }
 
 int Canvas::getSaveCount() {
-  if (!canvas_)
+  if (!canvas_) {
     return 0;
+  }
   return canvas_->getSaveCount();
 }
 
 void Canvas::translate(double dx, double dy) {
-  if (!canvas_)
+  if (!canvas_) {
     return;
+  }
   canvas_->translate(dx, dy);
 }
 
 void Canvas::scale(double sx, double sy) {
-  if (!canvas_)
+  if (!canvas_) {
     return;
+  }
   canvas_->scale(sx, sy);
 }
 
 void Canvas::rotate(double radians) {
-  if (!canvas_)
+  if (!canvas_) {
     return;
+  }
   canvas_->rotate(radians * 180.0 / M_PI);
 }
 
 void Canvas::skew(double sx, double sy) {
-  if (!canvas_)
+  if (!canvas_) {
     return;
+  }
   canvas_->skew(sx, sy);
 }
 
 void Canvas::transform(const tonic::Float64List& matrix4) {
-  if (!canvas_)
+  if (!canvas_) {
     return;
+  }
   canvas_->concat(ToSkMatrix(matrix4));
 }
 
@@ -159,30 +173,39 @@ void Canvas::clipRect(double left,
                       double top,
                       double right,
                       double bottom,
-                      SkClipOp clipOp) {
-  if (!canvas_)
+                      SkClipOp clipOp,
+                      bool doAntiAlias) {
+  if (!canvas_) {
     return;
-  canvas_->clipRect(SkRect::MakeLTRB(left, top, right, bottom), clipOp, true);
+  }
+  canvas_->clipRect(SkRect::MakeLTRB(left, top, right, bottom), clipOp,
+                    doAntiAlias);
 }
 
-void Canvas::clipRRect(const RRect& rrect) {
-  if (!canvas_)
+void Canvas::clipRRect(const RRect& rrect, bool doAntiAlias) {
+  if (!canvas_) {
     return;
-  canvas_->clipRRect(rrect.sk_rrect, true);
+  }
+  canvas_->clipRRect(rrect.sk_rrect, doAntiAlias);
 }
 
-void Canvas::clipPath(const CanvasPath* path) {
-  if (!canvas_)
+void Canvas::clipPath(const CanvasPath* path, bool doAntiAlias) {
+  if (!canvas_) {
     return;
-  if (!path)
+  }
+  if (!path) {
     Dart_ThrowException(
         ToDart("Canvas.clipPath called with non-genuine Path."));
-  canvas_->clipPath(path->path(), true);
+    return;
+  }
+  external_allocation_size_ += path->path().approximateBytesUsed();
+  canvas_->clipPath(path->path(), doAntiAlias);
 }
 
 void Canvas::drawColor(SkColor color, SkBlendMode blend_mode) {
-  if (!canvas_)
+  if (!canvas_) {
     return;
+  }
   canvas_->drawColor(color, blend_mode);
 }
 
@@ -192,14 +215,16 @@ void Canvas::drawLine(double x1,
                       double y2,
                       const Paint& paint,
                       const PaintData& paint_data) {
-  if (!canvas_)
+  if (!canvas_) {
     return;
+  }
   canvas_->drawLine(x1, y1, x2, y2, *paint.paint());
 }
 
 void Canvas::drawPaint(const Paint& paint, const PaintData& paint_data) {
-  if (!canvas_)
+  if (!canvas_) {
     return;
+  }
   canvas_->drawPaint(*paint.paint());
 }
 
@@ -209,16 +234,18 @@ void Canvas::drawRect(double left,
                       double bottom,
                       const Paint& paint,
                       const PaintData& paint_data) {
-  if (!canvas_)
+  if (!canvas_) {
     return;
+  }
   canvas_->drawRect(SkRect::MakeLTRB(left, top, right, bottom), *paint.paint());
 }
 
 void Canvas::drawRRect(const RRect& rrect,
                        const Paint& paint,
                        const PaintData& paint_data) {
-  if (!canvas_)
+  if (!canvas_) {
     return;
+  }
   canvas_->drawRRect(rrect.sk_rrect, *paint.paint());
 }
 
@@ -226,8 +253,9 @@ void Canvas::drawDRRect(const RRect& outer,
                         const RRect& inner,
                         const Paint& paint,
                         const PaintData& paint_data) {
-  if (!canvas_)
+  if (!canvas_) {
     return;
+  }
   canvas_->drawDRRect(outer.sk_rrect, inner.sk_rrect, *paint.paint());
 }
 
@@ -237,8 +265,9 @@ void Canvas::drawOval(double left,
                       double bottom,
                       const Paint& paint,
                       const PaintData& paint_data) {
-  if (!canvas_)
+  if (!canvas_) {
     return;
+  }
   canvas_->drawOval(SkRect::MakeLTRB(left, top, right, bottom), *paint.paint());
 }
 
@@ -247,8 +276,9 @@ void Canvas::drawCircle(double x,
                         double radius,
                         const Paint& paint,
                         const PaintData& paint_data) {
-  if (!canvas_)
+  if (!canvas_) {
     return;
+  }
   canvas_->drawCircle(x, y, radius, *paint.paint());
 }
 
@@ -261,8 +291,9 @@ void Canvas::drawArc(double left,
                      bool useCenter,
                      const Paint& paint,
                      const PaintData& paint_data) {
-  if (!canvas_)
+  if (!canvas_) {
     return;
+  }
   canvas_->drawArc(SkRect::MakeLTRB(left, top, right, bottom),
                    startAngle * 180.0 / M_PI, sweepAngle * 180.0 / M_PI,
                    useCenter, *paint.paint());
@@ -271,11 +302,15 @@ void Canvas::drawArc(double left,
 void Canvas::drawPath(const CanvasPath* path,
                       const Paint& paint,
                       const PaintData& paint_data) {
-  if (!canvas_)
+  if (!canvas_) {
     return;
-  if (!path)
+  }
+  if (!path) {
     Dart_ThrowException(
         ToDart("Canvas.drawPath called with non-genuine Path."));
+    return;
+  }
+  external_allocation_size_ += path->path().approximateBytesUsed();
   canvas_->drawPath(path->path(), *paint.paint());
 }
 
@@ -284,11 +319,15 @@ void Canvas::drawImage(const CanvasImage* image,
                        double y,
                        const Paint& paint,
                        const PaintData& paint_data) {
-  if (!canvas_)
+  if (!canvas_) {
     return;
-  if (!image)
+  }
+  if (!image) {
     Dart_ThrowException(
         ToDart("Canvas.drawImage called with non-genuine Image."));
+    return;
+  }
+  external_allocation_size_ += image->GetAllocationSize();
   canvas_->drawImage(image->image(), x, y, paint.paint());
 }
 
@@ -303,13 +342,17 @@ void Canvas::drawImageRect(const CanvasImage* image,
                            double dst_bottom,
                            const Paint& paint,
                            const PaintData& paint_data) {
-  if (!canvas_)
+  if (!canvas_) {
     return;
-  if (!image)
+  }
+  if (!image) {
     Dart_ThrowException(
         ToDart("Canvas.drawImageRect called with non-genuine Image."));
+    return;
+  }
   SkRect src = SkRect::MakeLTRB(src_left, src_top, src_right, src_bottom);
   SkRect dst = SkRect::MakeLTRB(dst_left, dst_top, dst_right, dst_bottom);
+  external_allocation_size_ += image->GetAllocationSize();
   canvas_->drawImageRect(image->image(), src, dst, paint.paint(),
                          SkCanvas::kFast_SrcRectConstraint);
 }
@@ -325,25 +368,33 @@ void Canvas::drawImageNine(const CanvasImage* image,
                            double dst_bottom,
                            const Paint& paint,
                            const PaintData& paint_data) {
-  if (!canvas_)
+  if (!canvas_) {
     return;
-  if (!image)
+  }
+  if (!image) {
     Dart_ThrowException(
         ToDart("Canvas.drawImageNine called with non-genuine Image."));
+    return;
+  }
   SkRect center =
       SkRect::MakeLTRB(center_left, center_top, center_right, center_bottom);
   SkIRect icenter;
   center.round(&icenter);
   SkRect dst = SkRect::MakeLTRB(dst_left, dst_top, dst_right, dst_bottom);
+  external_allocation_size_ += image->GetAllocationSize();
   canvas_->drawImageNine(image->image(), icenter, dst, paint.paint());
 }
 
 void Canvas::drawPicture(Picture* picture) {
-  if (!canvas_)
+  if (!canvas_) {
     return;
-  if (!picture)
+  }
+  if (!picture) {
     Dart_ThrowException(
         ToDart("Canvas.drawPicture called with non-genuine Picture."));
+    return;
+  }
+  external_allocation_size_ += picture->GetAllocationSize();
   canvas_->drawPicture(picture->picture().get());
 }
 
@@ -351,8 +402,9 @@ void Canvas::drawPoints(const Paint& paint,
                         const PaintData& paint_data,
                         SkCanvas::PointMode point_mode,
                         const tonic::Float32List& points) {
-  if (!canvas_)
+  if (!canvas_) {
     return;
+  }
 
   static_assert(sizeof(SkPoint) == sizeof(float) * 2,
                 "SkPoint doesn't use floats.");
@@ -367,12 +419,15 @@ void Canvas::drawVertices(const Vertices* vertices,
                           SkBlendMode blend_mode,
                           const Paint& paint,
                           const PaintData& paint_data) {
-  if (!canvas_)
+  if (!canvas_) {
     return;
-  if (!vertices)
+  }
+  if (!vertices) {
     Dart_ThrowException(
         ToDart("Canvas.drawVertices called with non-genuine Vertices."));
-
+    return;
+  }
+  external_allocation_size_ += vertices->GetAllocationSize();
   canvas_->drawVertices(vertices->vertices(), blend_mode, *paint.paint());
 }
 
@@ -384,12 +439,15 @@ void Canvas::drawAtlas(const Paint& paint,
                        const tonic::Int32List& colors,
                        SkBlendMode blend_mode,
                        const tonic::Float32List& cull_rect) {
-  if (!canvas_)
+  if (!canvas_) {
     return;
-  if (!atlas)
+  }
+  if (!atlas) {
     Dart_ThrowException(
         ToDart("Canvas.drawAtlas or Canvas.drawRawAtlas called with "
                "non-genuine Image."));
+    return;
+  }
 
   sk_sp<SkImage> skImage = atlas->image();
 
@@ -398,6 +456,7 @@ void Canvas::drawAtlas(const Paint& paint,
   static_assert(sizeof(SkRect) == sizeof(float) * 4,
                 "SkRect doesn't use floats.");
 
+  external_allocation_size_ += atlas->GetAllocationSize();
   canvas_->drawAtlas(
       skImage.get(), reinterpret_cast<const SkRSXform*>(transforms.data()),
       reinterpret_cast<const SkRect*>(rects.data()),
@@ -411,21 +470,26 @@ void Canvas::drawShadow(const CanvasPath* path,
                         SkColor color,
                         double elevation,
                         bool transparentOccluder) {
-  if (!path)
+  if (!path) {
     Dart_ThrowException(
         ToDart("Canvas.drawShader called with non-genuine Path."));
-  SkScalar dpr =
-      UIDartState::Current()->window()->viewport_metrics().device_pixel_ratio;
-  flow::PhysicalShapeLayer::DrawShadow(canvas_, path->path(), color, elevation,
-                                       transparentOccluder, dpr);
+    return;
+  }
+  SkScalar dpr = UIDartState::Current()
+                     ->platform_configuration()
+                     ->window()
+                     ->viewport_metrics()
+                     .device_pixel_ratio;
+  external_allocation_size_ += path->path().approximateBytesUsed();
+  flutter::PhysicalShapeLayer::DrawShadow(canvas_, path->path(), color,
+                                          elevation, transparentOccluder, dpr);
 }
 
-void Canvas::Clear() {
+void Canvas::Invalidate() {
   canvas_ = nullptr;
+  if (dart_wrapper()) {
+    ClearDartWrapper();
+  }
 }
 
-bool Canvas::IsRecording() const {
-  return !!canvas_;
-}
-
-}  // namespace blink
+}  // namespace flutter

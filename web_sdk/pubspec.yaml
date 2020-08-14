@@ -1,0 +1,6 @@
+name: web_sdk_tests
+author: Flutter Authors <flutter-dev@googlegroups.com>
+
+dev_dependencies:
+  analyzer: ^0.39.15
+  test: any

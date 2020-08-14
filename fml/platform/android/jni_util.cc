@@ -1,32 +1,44 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Flutter Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "flutter/fml/platform/android/jni_util.h"
 
+#include <sys/prctl.h>
 #include <codecvt>
 #include <string>
 
-#include "lib/fxl/logging.h"
+#include "flutter/fml/logging.h"
 
 namespace fml {
 namespace jni {
 
 static JavaVM* g_jvm = nullptr;
 
-#define ASSERT_NO_EXCEPTION() FXL_CHECK(env->ExceptionCheck() == JNI_FALSE);
+#define ASSERT_NO_EXCEPTION() FML_CHECK(env->ExceptionCheck() == JNI_FALSE);
 
 void InitJavaVM(JavaVM* vm) {
-  FXL_DCHECK(g_jvm == nullptr);
+  FML_DCHECK(g_jvm == nullptr);
   g_jvm = vm;
 }
 
 JNIEnv* AttachCurrentThread() {
-  FXL_DCHECK(g_jvm != nullptr)
+  FML_DCHECK(g_jvm != nullptr)
       << "Trying to attach to current thread without calling InitJavaVM first.";
   JNIEnv* env = nullptr;
-  jint ret = g_jvm->AttachCurrentThread(&env, nullptr);
-  FXL_DCHECK(JNI_OK == ret);
+  JavaVMAttachArgs args;
+  args.version = JNI_VERSION_1_4;
+  args.group = nullptr;
+  // 16 is the maximum size for thread names on Android.
+  char thread_name[16];
+  int err = prctl(PR_GET_NAME, thread_name);
+  if (err < 0) {
+    args.name = nullptr;
+  } else {
+    args.name = thread_name;
+  }
+  jint ret = g_jvm->AttachCurrentThread(&env, &args);
+  FML_DCHECK(JNI_OK == ret);
   return env;
 }
 
@@ -97,10 +109,10 @@ std::vector<std::string> StringArrayToVector(JNIEnv* env, jobjectArray array) {
 ScopedJavaLocalRef<jobjectArray> VectorToStringArray(
     JNIEnv* env,
     const std::vector<std::string>& vector) {
-  FXL_DCHECK(env);
+  FML_DCHECK(env);
   ScopedJavaLocalRef<jclass> string_clazz(env,
                                           env->FindClass("java/lang/String"));
-  FXL_DCHECK(!string_clazz.is_null());
+  FML_DCHECK(!string_clazz.is_null());
   jobjectArray joa =
       env->NewObjectArray(vector.size(), string_clazz.obj(), NULL);
   ASSERT_NO_EXCEPTION();

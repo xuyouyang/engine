@@ -1,30 +1,34 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Flutter Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "flutter/vulkan/vulkan_application.h"
+#include "vulkan_application.h"
 
 #include <utility>
 #include <vector>
 
-#include "flutter/vulkan/vulkan_device.h"
-#include "flutter/vulkan/vulkan_proc_table.h"
-#include "flutter/vulkan/vulkan_utilities.h"
+#include "vulkan_device.h"
+#include "vulkan_proc_table.h"
+#include "vulkan_utilities.h"
 
 namespace vulkan {
 
 VulkanApplication::VulkanApplication(
-    VulkanProcTable& p_vk,
+    VulkanProcTable& p_vk,  // NOLINT
     const std::string& application_name,
     std::vector<std::string> enabled_extensions,
     uint32_t application_version,
-    uint32_t api_version)
-    : vk(p_vk), api_version_(api_version), valid_(false) {
+    uint32_t api_version,
+    bool enable_validation_layers)
+    : vk(p_vk),
+      api_version_(api_version),
+      valid_(false),
+      enable_validation_layers_(enable_validation_layers) {
   // Check if we want to enable debugging.
   std::vector<VkExtensionProperties> supported_extensions =
       GetSupportedInstanceExtensions(vk);
   bool enable_instance_debugging =
-      IsDebuggingEnabled() &&
+      enable_validation_layers_ &&
       ExtensionSupported(supported_extensions,
                          VulkanDebugReport::DebugExtensionName());
 
@@ -36,6 +40,11 @@ VulkanApplication::VulkanApplication(
 #if OS_FUCHSIA
   if (ExtensionSupported(supported_extensions,
                          VK_KHR_EXTERNAL_MEMORY_CAPABILITIES_EXTENSION_NAME)) {
+    // VK_KHR_get_physical_device_properties2 is a dependency of the memory
+    // capabilities extension, so the validation layers require that it be
+    // enabled.
+    enabled_extensions.emplace_back(
+        VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME);
     enabled_extensions.emplace_back(
         VK_KHR_EXTERNAL_MEMORY_CAPABILITIES_EXTENSION_NAME);
   }
@@ -49,7 +58,8 @@ VulkanApplication::VulkanApplication(
 
   // Configure layers.
 
-  const std::vector<std::string> enabled_layers = InstanceLayersToEnable(vk);
+  const std::vector<std::string> enabled_layers =
+      InstanceLayersToEnable(vk, enable_validation_layers_);
 
   const char* layers[enabled_layers.size()];
 
@@ -86,29 +96,29 @@ VulkanApplication::VulkanApplication(
 
   if (VK_CALL_LOG_ERROR(vk.CreateInstance(&create_info, nullptr, &instance)) !=
       VK_SUCCESS) {
-    FXL_DLOG(INFO) << "Could not create application instance.";
+    FML_DLOG(INFO) << "Could not create application instance.";
     return;
   }
 
   // Now that we have an instance, setup instance proc table entries.
   if (!vk.SetupInstanceProcAddresses(instance)) {
-    FXL_DLOG(INFO) << "Could not setup instance proc addresses.";
+    FML_DLOG(INFO) << "Could not setup instance proc addresses.";
     return;
   }
 
   instance_ = {instance, [this](VkInstance i) {
-                 FXL_LOG(INFO) << "Destroying Vulkan instance";
+                 FML_DLOG(INFO) << "Destroying Vulkan instance";
                  vk.DestroyInstance(i, nullptr);
                }};
 
   if (enable_instance_debugging) {
     auto debug_report = std::make_unique<VulkanDebugReport>(vk, instance_);
     if (!debug_report->IsValid()) {
-      FXL_LOG(INFO) << "Vulkan debugging was enabled but could not be setup "
-                       "for this instance.";
+      FML_DLOG(INFO) << "Vulkan debugging was enabled but could not be setup "
+                        "for this instance.";
     } else {
       debug_report_ = std::move(debug_report);
-      FXL_DLOG(INFO) << "Debug reporting is enabled.";
+      FML_DLOG(INFO) << "Debug reporting is enabled.";
     }
   }
 
@@ -141,13 +151,13 @@ std::vector<VkPhysicalDevice> VulkanApplication::GetPhysicalDevices() const {
   uint32_t device_count = 0;
   if (VK_CALL_LOG_ERROR(vk.EnumeratePhysicalDevices(instance_, &device_count,
                                                     nullptr)) != VK_SUCCESS) {
-    FXL_DLOG(INFO) << "Could not enumerate physical device.";
+    FML_DLOG(INFO) << "Could not enumerate physical device.";
     return {};
   }
 
   if (device_count == 0) {
     // No available devices.
-    FXL_DLOG(INFO) << "No physical devices found.";
+    FML_DLOG(INFO) << "No physical devices found.";
     return {};
   }
 
@@ -157,7 +167,7 @@ std::vector<VkPhysicalDevice> VulkanApplication::GetPhysicalDevices() const {
 
   if (VK_CALL_LOG_ERROR(vk.EnumeratePhysicalDevices(
           instance_, &device_count, physical_devices.data())) != VK_SUCCESS) {
-    FXL_DLOG(INFO) << "Could not enumerate physical device.";
+    FML_DLOG(INFO) << "Could not enumerate physical device.";
     return {};
   }
 
@@ -167,12 +177,13 @@ std::vector<VkPhysicalDevice> VulkanApplication::GetPhysicalDevices() const {
 std::unique_ptr<VulkanDevice>
 VulkanApplication::AcquireFirstCompatibleLogicalDevice() const {
   for (auto device_handle : GetPhysicalDevices()) {
-    auto logical_device = std::make_unique<VulkanDevice>(vk, device_handle);
+    auto logical_device = std::make_unique<VulkanDevice>(
+        vk, device_handle, enable_validation_layers_);
     if (logical_device->IsValid()) {
       return logical_device;
     }
   }
-  FXL_DLOG(INFO) << "Could not acquire compatible logical device.";
+  FML_DLOG(INFO) << "Could not acquire compatible logical device.";
   return nullptr;
 }
 

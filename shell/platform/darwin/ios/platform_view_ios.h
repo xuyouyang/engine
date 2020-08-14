@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Flutter Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,100 +7,159 @@
 
 #include <memory>
 
+#include "flutter/fml/closure.h"
+#include "flutter/fml/macros.h"
 #include "flutter/fml/memory/weak_ptr.h"
+#include "flutter/fml/platform/darwin/scoped_nsobject.h"
 #include "flutter/shell/common/platform_view.h"
-#include "flutter/shell/platform/darwin/ios/framework/Headers/FlutterTexture.h"
-#include "flutter/shell/platform/darwin/ios/framework/Source/FlutterTextInputPlugin.h"
+#include "flutter/shell/platform/darwin/common/framework/Headers/FlutterTexture.h"
+#include "flutter/shell/platform/darwin/ios/framework/Headers/FlutterViewController.h"
+#include "flutter/shell/platform/darwin/ios/framework/Source/FlutterView.h"
 #include "flutter/shell/platform/darwin/ios/framework/Source/accessibility_bridge.h"
 #include "flutter/shell/platform/darwin/ios/framework/Source/platform_message_router.h"
+#include "flutter/shell/platform/darwin/ios/ios_context.h"
 #include "flutter/shell/platform/darwin/ios/ios_surface.h"
-#include "lib/fxl/functional/closure.h"
-#include "lib/fxl/macros.h"
+#include "flutter/shell/platform/darwin/ios/rendering_api_selection.h"
 
-@class CALayer;
-@class UIView;
+@class FlutterViewController;
 
-namespace shell {
+namespace flutter {
 
-class PlatformViewIOS : public PlatformView {
+/**
+ * A bridge connecting the platform agnostic shell and the iOS embedding.
+ *
+ * The shell provides and requests for UI related data and this PlatformView subclass fulfills
+ * it with iOS specific capabilities. As an example, the iOS embedding (the `FlutterEngine` and the
+ * `FlutterViewController`) sends pointer data to the shell and receives the shell's request for a
+ * Skia GrDirectContext and supplies it.
+ *
+ * Despite the name "view", this class is unrelated to UIViews on iOS and doesn't have the same
+ * lifecycle. It's a long lived bridge owned by the `FlutterEngine` and can be attached and
+ * detached sequentially to multiple `FlutterViewController`s and `FlutterView`s.
+ */
+class PlatformViewIOS final : public PlatformView {
  public:
-  explicit PlatformViewIOS(CALayer* layer,
-                           NSObject<FlutterBinaryMessenger>* binaryMessenger);
+  explicit PlatformViewIOS(PlatformView::Delegate& delegate,
+                           IOSRenderingAPI rendering_api,
+                           flutter::TaskRunners task_runners);
 
   ~PlatformViewIOS() override;
 
-  void Attach() override;
+  /**
+   * The `PlatformMessageRouter` is the iOS bridge connecting the shell's
+   * platform agnostic `PlatformMessage` to iOS's channel message handler.
+   */
+  PlatformMessageRouter& GetPlatformMessageRouter();
 
-  void Attach(fxl::Closure firstFrameCallback);
+  /**
+   * Returns the `FlutterViewController` currently attached to the `FlutterEngine` owning
+   * this PlatformViewIOS.
+   */
+  fml::WeakPtr<FlutterViewController> GetOwnerViewController() const;
 
-  void NotifyCreated();
+  /**
+   * Updates the `FlutterViewController` currently attached to the `FlutterEngine` owning
+   * this PlatformViewIOS. This should be updated when the `FlutterEngine`
+   * is given a new `FlutterViewController`.
+   */
+  void SetOwnerViewController(fml::WeakPtr<FlutterViewController> owner_controller);
 
-  void ToggleAccessibility(UIView* view, bool enabled);
+  /**
+   * Called one time per `FlutterViewController` when the `FlutterViewController`'s
+   * UIView is first loaded.
+   *
+   * Can be used to perform late initialization after `FlutterViewController`'s
+   * init.
+   */
+  void attachView();
 
-  PlatformMessageRouter& platform_message_router() {
-    return platform_message_router_;
-  }
-
-  fml::WeakPtr<PlatformViewIOS> GetWeakPtr();
-
-  void UpdateSurfaceSize();
-
-  VsyncWaiter* GetVsyncWaiter() override;
-
-  bool ResourceContextMakeCurrent() override;
-
-  void HandlePlatformMessage(
-      fxl::RefPtr<blink::PlatformMessage> message) override;
-
+  /**
+   * Called through when an external texture such as video or camera is
+   * given to the `FlutterEngine` or `FlutterViewController`.
+   */
   void RegisterExternalTexture(int64_t id, NSObject<FlutterTexture>* texture);
 
-  void UpdateSemantics(blink::SemanticsNodeUpdates update) override;
+  // |PlatformView|
+  PointerDataDispatcherMaker GetDispatcherMaker() override;
 
-  void RunFromSource(const std::string& assets_directory,
-                     const std::string& main,
-                     const std::string& packages) override;
-
-  void SetAssetBundlePath(const std::string& assets_directory) override;
-
-  /**
-   * Exposes the `FlutterTextInputPlugin` singleton for the
-   * `AccessibilityBridge` to be able to interact with the text entry system.
-   */
-  fml::scoped_nsprotocol<FlutterTextInputPlugin*> text_input_plugin() {
-    return text_input_plugin_;
-  }
-
-  /**
-   * Sets the `FlutterTextInputPlugin` singleton returned by
-   * `text_input_plugin`.
-   */
-  void SetTextInputPlugin(
-      fml::scoped_nsprotocol<FlutterTextInputPlugin*> textInputPlugin) {
-    text_input_plugin_ = textInputPlugin;
-  }
-
-  NSObject<FlutterBinaryMessenger>* binary_messenger() const {
-    return binary_messenger_;
-  }
+  // |PlatformView|
+  void SetSemanticsEnabled(bool enabled) override;
 
  private:
+  /// Smart pointer for use with objective-c observers.
+  /// This guarentees we remove the observer.
+  class ScopedObserver {
+   public:
+    ScopedObserver();
+    ~ScopedObserver();
+    void reset(id<NSObject> observer);
+    ScopedObserver(const ScopedObserver&) = delete;
+    ScopedObserver& operator=(const ScopedObserver&) = delete;
+
+   private:
+    id<NSObject> observer_;
+  };
+
+  /// Smart pointer that guarentees we communicate clearing Accessibility
+  /// information to Dart.
+  class AccessibilityBridgePtr {
+   public:
+    AccessibilityBridgePtr(const std::function<void(bool)>& set_semantics_enabled);
+    AccessibilityBridgePtr(const std::function<void(bool)>& set_semantics_enabled,
+                           AccessibilityBridge* bridge);
+    ~AccessibilityBridgePtr();
+    explicit operator bool() const noexcept { return static_cast<bool>(accessibility_bridge_); }
+    AccessibilityBridge* operator->() const noexcept { return accessibility_bridge_.get(); }
+    void reset(AccessibilityBridge* bridge = nullptr);
+
+   private:
+    FML_DISALLOW_COPY_AND_ASSIGN(AccessibilityBridgePtr);
+    std::unique_ptr<AccessibilityBridge> accessibility_bridge_;
+    std::function<void(bool)> set_semantics_enabled_;
+  };
+
+  fml::WeakPtr<FlutterViewController> owner_controller_;
+  // Since the `ios_surface_` is created on the platform thread but
+  // used on the raster thread we need to protect it with a mutex.
+  std::mutex ios_surface_mutex_;
   std::unique_ptr<IOSSurface> ios_surface_;
+  std::shared_ptr<IOSContext> ios_context_;
   PlatformMessageRouter platform_message_router_;
-  std::unique_ptr<AccessibilityBridge> accessibility_bridge_;
-  fxl::Closure firstFrameCallback_;
-  fml::WeakPtrFactory<PlatformViewIOS> weak_factory_;
-  NSObject<FlutterBinaryMessenger>* binary_messenger_;
+  AccessibilityBridgePtr accessibility_bridge_;
   fml::scoped_nsprotocol<FlutterTextInputPlugin*> text_input_plugin_;
+  fml::closure firstFrameCallback_;
+  ScopedObserver dealloc_view_controller_observer_;
+  std::vector<std::string> platform_resolved_locale_;
 
-  void SetupAndLoadFromSource(const std::string& assets_directory,
-                              const std::string& main,
-                              const std::string& packages);
+  // |PlatformView|
+  void HandlePlatformMessage(fml::RefPtr<flutter::PlatformMessage> message) override;
 
-  void SetAssetBundlePathOnUI(const std::string& assets_directory);
+  // |PlatformView|
+  std::unique_ptr<Surface> CreateRenderingSurface() override;
 
-  FXL_DISALLOW_COPY_AND_ASSIGN(PlatformViewIOS);
+  // |PlatformView|
+  sk_sp<GrDirectContext> CreateResourceContext() const override;
+
+  // |PlatformView|
+  void SetAccessibilityFeatures(int32_t flags) override;
+
+  // |PlatformView|
+  void UpdateSemantics(flutter::SemanticsNodeUpdates update,
+                       flutter::CustomAccessibilityActionUpdates actions) override;
+
+  // |PlatformView|
+  std::unique_ptr<VsyncWaiter> CreateVSyncWaiter() override;
+
+  // |PlatformView|
+  void OnPreEngineRestart() const override;
+
+  // |PlatformView|
+  std::unique_ptr<std::vector<std::string>> ComputePlatformResolvedLocales(
+      const std::vector<std::string>& supported_locale_data) override;
+
+  FML_DISALLOW_COPY_AND_ASSIGN(PlatformViewIOS);
 };
 
-}  // namespace shell
+}  // namespace flutter
 
 #endif  // SHELL_PLATFORM_IOS_PLATFORM_VIEW_IOS_H_

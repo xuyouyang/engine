@@ -1,60 +1,90 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Flutter Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "flutter/shell/platform/darwin/ios/ios_surface_gl.h"
 
+#include "flutter/fml/trace_event.h"
 #include "flutter/shell/gpu/gpu_surface_gl.h"
+#include "flutter/shell/platform/darwin/ios/ios_context_gl.h"
 
-namespace shell {
+namespace flutter {
 
-IOSSurfaceGL::IOSSurfaceGL(PlatformView::SurfaceConfig surface_config, CAEAGLLayer* layer)
-    : IOSSurface(surface_config, reinterpret_cast<CALayer*>(layer)),
-      context_(surface_config, layer) {}
+static IOSContextGL* CastToGLContext(const std::shared_ptr<IOSContext>& context) {
+  return reinterpret_cast<IOSContextGL*>(context.get());
+}
+
+IOSSurfaceGL::IOSSurfaceGL(fml::scoped_nsobject<CAEAGLLayer> layer,
+                           std::shared_ptr<IOSContext> context,
+                           FlutterPlatformViewsController* platform_views_controller)
+    : IOSSurface(context, platform_views_controller) {
+  render_target_ = CastToGLContext(context)->CreateRenderTarget(std::move(layer));
+}
 
 IOSSurfaceGL::~IOSSurfaceGL() = default;
 
+// |IOSSurface|
 bool IOSSurfaceGL::IsValid() const {
-  return context_.IsValid();
+  return render_target_->IsValid();
 }
 
-bool IOSSurfaceGL::ResourceContextMakeCurrent() {
-  return IsValid() ? context_.ResourceMakeCurrent() : false;
-}
-
+// |IOSSurface|
 void IOSSurfaceGL::UpdateStorageSizeIfNecessary() {
   if (IsValid()) {
-    context_.UpdateStorageSizeIfNecessary();
+    render_target_->UpdateStorageSizeIfNecessary();
   }
 }
 
-std::unique_ptr<Surface> IOSSurfaceGL::CreateGPUSurface() {
-  return std::make_unique<GPUSurfaceGL>(this);
+// |IOSSurface|
+std::unique_ptr<Surface> IOSSurfaceGL::CreateGPUSurface(GrDirectContext* gr_context) {
+  if (gr_context) {
+    return std::make_unique<GPUSurfaceGL>(sk_ref_sp(gr_context), this, true);
+  }
+  return std::make_unique<GPUSurfaceGL>(this, true);
 }
 
+// |GPUSurfaceGLDelegate|
 intptr_t IOSSurfaceGL::GLContextFBO() const {
-  return IsValid() ? context_.framebuffer() : GL_NONE;
+  return IsValid() ? render_target_->GetFramebuffer() : GL_NONE;
 }
 
-bool IOSSurfaceGL::UseOffscreenSurface() const {
-  // The onscreen surface wraps a GL renderbuffer, which is extremely slow to read.
-  // Certain filter effects require making a copy of the current destination, so we
-  // always render to an offscreen surface, which will be much quicker to read/copy.
-  return true;
+// |GPUSurfaceGLDelegate|
+bool IOSSurfaceGL::SurfaceSupportsReadback() const {
+  // The onscreen surface wraps a GL renderbuffer, which is extremely slow to read on iOS.
+  // Certain filter effects, in particular BackdropFilter, require making a copy of
+  // the current destination. For performance, the iOS surface will specify that it
+  // does not support readback so that the engine compositor can implement a workaround
+  // such as rendering the scene to an offscreen surface or Skia saveLayer.
+  return false;
 }
 
-bool IOSSurfaceGL::GLContextMakeCurrent() {
-  return IsValid() ? context_.MakeCurrent() : false;
+// |GPUSurfaceGLDelegate|
+std::unique_ptr<GLContextResult> IOSSurfaceGL::GLContextMakeCurrent() {
+  if (!IsValid()) {
+    return std::make_unique<GLContextDefaultResult>(false);
+  }
+  bool update_if_necessary = render_target_->UpdateStorageSizeIfNecessary();
+  if (!update_if_necessary) {
+    return std::make_unique<GLContextDefaultResult>(false);
+  }
+  return GetContext()->MakeCurrent();
 }
 
+// |GPUSurfaceGLDelegate|
 bool IOSSurfaceGL::GLContextClearCurrent() {
-  [EAGLContext setCurrentContext:nil];
+  // |GLContextMakeCurrent| should handle the scope of the gl context.
   return true;
 }
 
+// |GPUSurfaceGLDelegate|
 bool IOSSurfaceGL::GLContextPresent() {
   TRACE_EVENT0("flutter", "IOSSurfaceGL::GLContextPresent");
-  return IsValid() ? context_.PresentRenderBuffer() : false;
+  return IsValid() && render_target_->PresentRenderBuffer();
 }
 
-}  // namespace shell
+// |GPUSurfaceGLDelegate|
+ExternalViewEmbedder* IOSSurfaceGL::GetExternalViewEmbedder() {
+  return GetExternalViewEmbedderIfEnabled();
+}
+
+}  // namespace flutter

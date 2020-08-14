@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Flutter Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,11 +6,17 @@
 #define TXT_PLATFORM_H_
 
 #include <string>
-#include "lib/fxl/macros.h"
+#include <vector>
+
+#include "flutter/fml/macros.h"
+
+#include "third_party/skia/include/core/SkFontMgr.h"
 
 namespace txt {
 
-std::string GetDefaultFontFamily();
+std::vector<std::string> GetDefaultFontFamilies();
+
+sk_sp<SkFontMgr> GetDefaultFontManager();
 
 }  // namespace txt
 

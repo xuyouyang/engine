@@ -23,6 +23,7 @@
 #include <log/log.h>
 #include "unicode/unistr.h"
 #include "unicode/unorm2.h"
+#include "unicode/utf16.h"
 
 #include <minikin/Emoji.h>
 #include <minikin/FontCollection.h>
@@ -44,6 +45,12 @@ const uint32_t TEXT_STYLE_VS = 0xFE0E;
 
 uint32_t FontCollection::sNextId = 0;
 
+// libtxt: return a locale string for a language list ID
+std::string GetFontLocale(uint32_t langListId) {
+  const FontLanguages& langs = FontLanguageListCache::getById(langListId);
+  return langs.size() ? langs[0].getString() : "";
+}
+
 FontCollection::FontCollection(std::shared_ptr<FontFamily>&& typeface)
     : mMaxChar(0) {
   std::vector<std::shared_ptr<FontFamily>> typefaces;
@@ -59,7 +66,7 @@ FontCollection::FontCollection(
 
 void FontCollection::init(
     const vector<std::shared_ptr<FontFamily>>& typefaces) {
-  std::lock_guard<std::recursive_mutex> _l(gMinikinLock);
+  std::scoped_lock _l(gMinikinLock);
   mId = sNextId++;
   vector<uint32_t> lastChar;
   size_t nTypefaces = typefaces.size();
@@ -228,7 +235,7 @@ uint32_t FontCollection::calcCoverageScore(
 }
 
 // Calculate font scores based on the script matching, subtag matching and
-// primary langauge matching.
+// primary language matching.
 //
 // 1. If only the font's language matches or there is no matches between
 // requested font and
@@ -295,7 +302,7 @@ const std::shared_ptr<FontFamily>& FontCollection::getFamilyForChar(
     // libtxt: check if the fallback font provider can match this character
     if (mFallbackFontProvider) {
       const std::shared_ptr<FontFamily>& fallback =
-          mFallbackFontProvider->matchFallbackFont(ch);
+          findFallbackFont(ch, vs, langListId);
       if (fallback) {
         return fallback;
       }
@@ -332,7 +339,7 @@ const std::shared_ptr<FontFamily>& FontCollection::getFamilyForChar(
     // libtxt: check if the fallback font provider can match this character
     if (mFallbackFontProvider) {
       const std::shared_ptr<FontFamily>& fallback =
-          mFallbackFontProvider->matchFallbackFont(ch);
+          findFallbackFont(ch, vs, langListId);
       if (fallback) {
         return fallback;
       }
@@ -356,6 +363,30 @@ const std::shared_ptr<FontFamily>& FontCollection::getFamilyForChar(
                  : mFamilies[bestFamilyIndex];
 }
 
+const std::shared_ptr<FontFamily>& FontCollection::findFallbackFont(
+    uint32_t ch,
+    uint32_t vs,
+    uint32_t langListId) const {
+  std::string locale = GetFontLocale(langListId);
+
+  const auto it = mCachedFallbackFamilies.find(locale);
+  if (it != mCachedFallbackFamilies.end()) {
+    for (const auto& fallbackFamily : it->second) {
+      if (calcCoverageScore(ch, vs, fallbackFamily)) {
+        return fallbackFamily;
+      }
+    }
+  }
+
+  const std::shared_ptr<FontFamily>& fallback =
+      mFallbackFontProvider->matchFallbackFont(ch, GetFontLocale(langListId));
+
+  if (fallback) {
+    mCachedFallbackFamilies[locale].push_back(fallback);
+  }
+  return fallback;
+}
+
 const uint32_t NBSP = 0x00A0;
 const uint32_t SOFT_HYPHEN = 0x00AD;
 const uint32_t ZWJ = 0x200C;
@@ -369,16 +400,16 @@ const uint32_t STAFF_OF_AESCULAPIUS = 0x2695;
 
 // Characters where we want to continue using existing font run instead of
 // recomputing the best match in the fallback list.
-static const uint32_t stickyWhitelist[] = {
+static const uint32_t stickyAllowlist[] = {
     '!',   ',',         '-',       '.',
     ':',   ';',         '?',       NBSP,
     ZWJ,   ZWNJ,        HYPHEN,    NB_HYPHEN,
     NNBSP, FEMALE_SIGN, MALE_SIGN, STAFF_OF_AESCULAPIUS};
 
-static bool isStickyWhitelisted(uint32_t c) {
-  for (size_t i = 0; i < sizeof(stickyWhitelist) / sizeof(stickyWhitelist[0]);
+static bool isStickyAllowed(uint32_t c) {
+  for (size_t i = 0; i < sizeof(stickyAllowlist) / sizeof(stickyAllowlist[0]);
        i++) {
-    if (stickyWhitelist[i] == c)
+    if (stickyAllowlist[i] == c)
       return true;
   }
   return false;
@@ -397,7 +428,7 @@ bool FontCollection::hasVariationSelector(uint32_t baseCodepoint,
     return false;
   }
 
-  std::lock_guard<std::recursive_mutex> _l(gMinikinLock);
+  std::scoped_lock _l(gMinikinLock);
 
   // Currently mRanges can not be used here since it isn't aware of the
   // variation sequence.
@@ -458,9 +489,9 @@ void FontCollection::itemize(const uint16_t* string,
 
     bool shouldContinueRun = false;
     if (lastFamily != nullptr) {
-      if (isStickyWhitelisted(ch)) {
+      if (isStickyAllowed(ch)) {
         // Continue using existing font as long as it has coverage and is
-        // whitelisted
+        // allowed.
         shouldContinueRun = lastFamily->getCoverage().get(ch);
       } else if (ch == SOFT_HYPHEN || isVariationSelector(ch)) {
         // Always continue if the character is the soft hyphen or a variation

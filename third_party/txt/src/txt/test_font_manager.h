@@ -19,11 +19,12 @@
 
 #include <memory>
 #include <string>
+#include <vector>
 
-#include "lib/fxl/macros.h"
-#include "third_party/skia/include/ports/SkFontMgr.h"
-#include "txt/asset_data_provider.h"
+#include "flutter/fml/macros.h"
+#include "third_party/skia/include/core/SkFontMgr.h"
 #include "txt/asset_font_manager.h"
+#include "txt/font_asset_provider.h"
 
 namespace txt {
 
@@ -31,17 +32,17 @@ namespace txt {
 // one family.
 class TestFontManager : public AssetFontManager {
  public:
-  TestFontManager(std::unique_ptr<AssetDataProvider> data_provider,
-                  std::string test_font_family_name);
+  TestFontManager(std::unique_ptr<FontAssetProvider> font_provider,
+                  std::vector<std::string> test_font_family_names);
 
   ~TestFontManager() override;
 
  private:
-  std::string test_font_family_name_;
+  std::vector<std::string> test_font_family_names_;
 
   SkFontStyleSet* onMatchFamily(const char family_name[]) const override;
 
-  FXL_DISALLOW_COPY_AND_ASSIGN(TestFontManager);
+  FML_DISALLOW_COPY_AND_ASSIGN(TestFontManager);
 };
 
 }  // namespace txt

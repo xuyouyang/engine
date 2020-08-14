@@ -2,37 +2,54 @@
 #include <algorithm>
 #include <sstream>
 
+#include "flutter/fml/logging.h"
 #include "flutter/shell/platform/android/apk_asset_provider.h"
-#include "lib/fxl/logging.h"
 
-namespace blink {
+namespace flutter {
 
-bool APKAssetProvider::GetAsBuffer(const std::string& asset_name,
-                                   std::vector<uint8_t>* data) {
-  std::stringstream ss;
-  ss << directory_.c_str() << "/" << asset_name;
-  AAsset* asset = AAssetManager_open(assetManager_, ss.str().c_str(), AASSET_MODE_BUFFER);
-  if (!asset) {
-     return false;
-  }
-
-  uint8_t* buffer = (uint8_t*)AAsset_getBuffer(asset);
-  if (!buffer) {
-    FXL_LOG(ERROR) << "Got null trying to acquire buffer for asset:" << asset;
-    return false;
-  }
-
-  data->resize(AAsset_getLength(asset));
-  std::copy(buffer, buffer + data->size(), data->begin());
-  AAsset_close(asset);
-  return true;
-}
-
-APKAssetProvider::~APKAssetProvider() {}
-
-APKAssetProvider::APKAssetProvider(JNIEnv* env, jobject jassetManager, std::string directory)
-   : directory_(std::move(directory)) {
+APKAssetProvider::APKAssetProvider(JNIEnv* env,
+                                   jobject jassetManager,
+                                   std::string directory)
+    : java_asset_manager_(env, jassetManager),
+      directory_(std::move(directory)) {
   assetManager_ = AAssetManager_fromJava(env, jassetManager);
 }
 
-}  // namespace blink
+APKAssetProvider::~APKAssetProvider() = default;
+
+bool APKAssetProvider::IsValid() const {
+  return true;
+}
+
+class APKAssetMapping : public fml::Mapping {
+ public:
+  APKAssetMapping(AAsset* asset) : asset_(asset) {}
+
+  ~APKAssetMapping() override { AAsset_close(asset_); }
+
+  size_t GetSize() const override { return AAsset_getLength(asset_); }
+
+  const uint8_t* GetMapping() const override {
+    return reinterpret_cast<const uint8_t*>(AAsset_getBuffer(asset_));
+  }
+
+ private:
+  AAsset* const asset_;
+
+  FML_DISALLOW_COPY_AND_ASSIGN(APKAssetMapping);
+};
+
+std::unique_ptr<fml::Mapping> APKAssetProvider::GetAsMapping(
+    const std::string& asset_name) const {
+  std::stringstream ss;
+  ss << directory_.c_str() << "/" << asset_name;
+  AAsset* asset =
+      AAssetManager_open(assetManager_, ss.str().c_str(), AASSET_MODE_BUFFER);
+  if (!asset) {
+    return nullptr;
+  }
+
+  return std::make_unique<APKAssetMapping>(asset);
+}
+
+}  // namespace flutter

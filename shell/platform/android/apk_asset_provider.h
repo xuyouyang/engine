@@ -1,32 +1,41 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Flutter Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef FLUTTER_ASSETS_APK_ASSET_PROVIDER_H_
 #define FLUTTER_ASSETS_APK_ASSET_PROVIDER_H_
 
-#include <jni.h>
 #include <android/asset_manager_jni.h>
+#include <jni.h>
 
-#include "flutter/assets/asset_provider.h"
-#include "lib/fxl/memory/ref_counted.h"
+#include "flutter/assets/asset_resolver.h"
+#include "flutter/fml/memory/ref_counted.h"
+#include "flutter/fml/platform/android/scoped_java_ref.h"
 
-namespace blink {
+namespace flutter {
 
-class APKAssetProvider
-    : public AssetProvider {
+class APKAssetProvider final : public AssetResolver {
  public:
-  explicit APKAssetProvider(JNIEnv* env, jobject assetManager, std::string directory);
-  virtual ~APKAssetProvider();
-
-  virtual bool GetAsBuffer(const std::string& asset_name,
-                           std::vector<uint8_t>* data);
+  explicit APKAssetProvider(JNIEnv* env,
+                            jobject assetManager,
+                            std::string directory);
+  ~APKAssetProvider() override;
 
  private:
- AAssetManager* assetManager_;
- const std::string directory_;
+  fml::jni::ScopedJavaGlobalRef<jobject> java_asset_manager_;
+  AAssetManager* assetManager_;
+  const std::string directory_;
+
+  // |flutter::AssetResolver|
+  bool IsValid() const override;
+
+  // |flutter::AssetResolver|
+  std::unique_ptr<fml::Mapping> GetAsMapping(
+      const std::string& asset_name) const override;
+
+  FML_DISALLOW_COPY_AND_ASSIGN(APKAssetProvider);
 };
 
-}  // namespace blink
+}  // namespace flutter
 
-#endif // FLUTTER_ASSETS_APK_ASSET_PROVIDER_H
+#endif  // FLUTTER_ASSETS_APK_ASSET_PROVIDER_H

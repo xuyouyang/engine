@@ -1,31 +1,43 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Flutter Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef FLUTTER_LIB_UI_PAINTING_PATH_H_
 #define FLUTTER_LIB_UI_PAINTING_PATH_H_
 
+#include "flutter/lib/ui/dart_wrapper.h"
 #include "flutter/lib/ui/painting/rrect.h"
-#include "lib/tonic/dart_wrappable.h"
-#include "lib/tonic/typed_data/float32_list.h"
-#include "lib/tonic/typed_data/float64_list.h"
 #include "third_party/skia/include/core/SkPath.h"
+#include "third_party/skia/include/pathops/SkPathOps.h"
+#include "third_party/tonic/typed_data/typed_list.h"
 
 namespace tonic {
 class DartLibraryNatives;
 }  // namespace tonic
 
-namespace blink {
+namespace flutter {
 
-class CanvasPath : public fxl::RefCountedThreadSafe<CanvasPath>,
-                   public tonic::DartWrappable {
+class CanvasPath : public RefCountedDartWrappable<CanvasPath> {
   DEFINE_WRAPPERTYPEINFO();
-  FRIEND_MAKE_REF_COUNTED(CanvasPath);
+  FML_FRIEND_MAKE_REF_COUNTED(CanvasPath);
 
  public:
   ~CanvasPath() override;
-  static fxl::RefPtr<CanvasPath> Create() {
-    return fxl::MakeRefCounted<CanvasPath>();
+  static fml::RefPtr<CanvasPath> CreateNew(Dart_Handle path_handle) {
+    return fml::MakeRefCounted<CanvasPath>();
+  }
+
+  static fml::RefPtr<CanvasPath> Create(Dart_Handle path_handle) {
+    auto path = fml::MakeRefCounted<CanvasPath>();
+    path->AssociateWithDartWrapper(path_handle);
+    return path;
+  }
+
+  static fml::RefPtr<CanvasPath> CreateFrom(Dart_Handle path_handle,
+                                            const SkPath& src) {
+    fml::RefPtr<CanvasPath> path = CanvasPath::Create(path_handle);
+    path->path_ = src;
+    return path;
   }
 
   int getFillType();
@@ -78,14 +90,27 @@ class CanvasPath : public fxl::RefCountedThreadSafe<CanvasPath>,
   void addPolygon(const tonic::Float32List& points, bool close);
   void addRRect(const RRect& rrect);
   void addPath(CanvasPath* path, double dx, double dy);
+  void addPathWithMatrix(CanvasPath* path,
+                         double dx,
+                         double dy,
+                         tonic::Float64List& matrix4);
   void extendWithPath(CanvasPath* path, double dx, double dy);
+  void extendWithPathAndMatrix(CanvasPath* path,
+                               double dx,
+                               double dy,
+                               tonic::Float64List& matrix4);
   void close();
   void reset();
   bool contains(double x, double y);
-  fxl::RefPtr<CanvasPath> shift(double dx, double dy);
-  fxl::RefPtr<CanvasPath> transform(tonic::Float64List& matrix4);
+  void shift(Dart_Handle path_handle, double dx, double dy);
+  void transform(Dart_Handle path_handle, tonic::Float64List& matrix4);
+  tonic::Float32List getBounds();
+  bool op(CanvasPath* path1, CanvasPath* path2, int operation);
+  void clone(Dart_Handle path_handle);
 
   const SkPath& path() const { return path_; }
+
+  size_t GetAllocationSize() const override;
 
   static void RegisterNatives(tonic::DartLibraryNatives* natives);
 
@@ -95,6 +120,6 @@ class CanvasPath : public fxl::RefCountedThreadSafe<CanvasPath>,
   SkPath path_;
 };
 
-}  // namespace blink
+}  // namespace flutter
 
 #endif  // FLUTTER_LIB_UI_PAINTING_PATH_H_

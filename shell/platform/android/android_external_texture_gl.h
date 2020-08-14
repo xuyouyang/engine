@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Flutter Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,25 +8,32 @@
 #include <GLES/gl.h>
 #include "flutter/flow/texture.h"
 #include "flutter/fml/platform/android/jni_weak_ref.h"
+#include "flutter/shell/platform/android/platform_view_android_jni_impl.h"
 
-namespace shell {
+namespace flutter {
 
-class AndroidExternalTextureGL : public flow::Texture {
+class AndroidExternalTextureGL : public flutter::Texture {
  public:
   AndroidExternalTextureGL(
       int64_t id,
-      const fml::jni::JavaObjectWeakGlobalRef& surfaceTexture);
+      const fml::jni::JavaObjectWeakGlobalRef& surface_texture,
+      std::shared_ptr<PlatformViewAndroidJNI> jni_facade);
 
   ~AndroidExternalTextureGL() override;
 
-  virtual void Paint(SkCanvas& canvas, const SkRect& bounds) override;
+  void Paint(SkCanvas& canvas,
+             const SkRect& bounds,
+             bool freeze,
+             GrDirectContext* context,
+             SkFilterQuality filter_quality) override;
 
-  virtual void OnGrContextCreated() override;
+  void OnGrContextCreated() override;
 
-  virtual void OnGrContextDestroyed() override;
+  void OnGrContextDestroyed() override;
 
-  // Called on GPU thread.
-  void MarkNewFrameAvailable();
+  void MarkNewFrameAvailable() override;
+
+  void OnTextureUnregistered() override;
 
  private:
   void Attach(jint textureName);
@@ -39,6 +46,8 @@ class AndroidExternalTextureGL : public flow::Texture {
 
   enum class AttachmentState { uninitialized, attached, detached };
 
+  std::shared_ptr<PlatformViewAndroidJNI> jni_facade_;
+
   fml::jni::JavaObjectWeakGlobalRef surface_texture_;
 
   AttachmentState state_ = AttachmentState::uninitialized;
@@ -49,9 +58,9 @@ class AndroidExternalTextureGL : public flow::Texture {
 
   SkMatrix transform;
 
-  FXL_DISALLOW_COPY_AND_ASSIGN(AndroidExternalTextureGL);
+  FML_DISALLOW_COPY_AND_ASSIGN(AndroidExternalTextureGL);
 };
 
-}  // namespace shell
+}  // namespace flutter
 
 #endif  // FLUTTER_SHELL_PLATFORM_ANDROID_EXTERNAL_TEXTURE_GL_H_

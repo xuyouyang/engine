@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Flutter Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,14 +10,14 @@
 #include <utility>
 #include <vector>
 
-#include "flutter/vulkan/vulkan_proc_table.h"
-#include "lib/fxl/compiler_specific.h"
-#include "lib/fxl/macros.h"
+#include "flutter/fml/compiler_specific.h"
+#include "flutter/fml/macros.h"
 #include "third_party/skia/include/core/SkRefCnt.h"
 #include "third_party/skia/include/core/SkSize.h"
 #include "third_party/skia/include/core/SkSurface.h"
-#include "third_party/skia/include/gpu/GrContext.h"
+#include "third_party/skia/include/gpu/GrDirectContext.h"
 #include "third_party/skia/include/gpu/vk/GrVkBackendContext.h"
+#include "vulkan_proc_table.h"
 
 namespace vulkan {
 
@@ -31,14 +31,15 @@ class VulkanBackbuffer;
 
 class VulkanWindow {
  public:
-  VulkanWindow(fxl::RefPtr<VulkanProcTable> proc_table,
-               std::unique_ptr<VulkanNativeSurface> native_surface);
+  VulkanWindow(fml::RefPtr<VulkanProcTable> proc_table,
+               std::unique_ptr<VulkanNativeSurface> native_surface,
+               bool render_to_surface);
 
   ~VulkanWindow();
 
   bool IsValid() const;
 
-  GrContext* GetSkiaGrContext();
+  GrDirectContext* GetSkiaGrContext();
 
   sk_sp<SkSurface> AcquireSurface();
 
@@ -46,24 +47,20 @@ class VulkanWindow {
 
  private:
   bool valid_;
-  fxl::RefPtr<VulkanProcTable> vk;
-  // Note: The order of objects here is important because the
-  // GrVkBackendContext assumes ownership of the device and instance handles.
-  sk_sp<GrVkBackendContext> skia_vk_backend_context_;
+  fml::RefPtr<VulkanProcTable> vk;
   std::unique_ptr<VulkanApplication> application_;
   std::unique_ptr<VulkanDevice> logical_device_;
   std::unique_ptr<VulkanSurface> surface_;
   std::unique_ptr<VulkanSwapchain> swapchain_;
-  sk_sp<GrContext> skia_gr_context_;
+  sk_sp<GrDirectContext> skia_gr_context_;
 
   bool CreateSkiaGrContext();
 
-  sk_sp<GrVkBackendContext> CreateSkiaBackendContext();
+  bool CreateSkiaBackendContext(GrVkBackendContext* context);
 
-  FXL_WARN_UNUSED_RESULT
-  bool RecreateSwapchain();
+  [[nodiscard]] bool RecreateSwapchain();
 
-  FXL_DISALLOW_COPY_AND_ASSIGN(VulkanWindow);
+  FML_DISALLOW_COPY_AND_ASSIGN(VulkanWindow);
 };
 
 }  // namespace vulkan

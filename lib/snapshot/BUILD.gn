@@ -1,75 +1,37 @@
-# Copyright 2016 The Chromium Authors. All rights reserved.
+# Copyright 2013 The Flutter Authors. All rights reserved.
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
-import("$flutter_root/lib/ui/dart_ui.gni")
+import("//build/compiled_action.gni")
+import("//build/fuchsia/sdk.gni")
+import("//flutter/common/config.gni")
+import("//flutter/lib/ui/dart_ui.gni")
 import("//third_party/dart/utils/compile_platform.gni")
-import("//third_party/dart/utils/generate_entry_points_json.gni")
-
-if (is_fuchsia) {
-  import("//build/dart/dart_library.gni")
-  import("//build/dart/toolchain.gni")
-  import("//topaz/public/dart-pkg/fuchsia/sdk_ext.gni")
-  import("//topaz/public/dart-pkg/zircon/sdk_ext.gni")
-  import("//topaz/public/lib/ui/flutter/sdk_ext/sdk_ext.gni")
-}
 
 bindings_output_dir = "$root_gen_dir/sky/bindings"
 
 copy("generate_dart_ui") {
+  visibility = [ ":*" ]
   sources = dart_ui_files
 
-  outputs = [
-    "$bindings_output_dir/dart_ui/{{source_file_part}}",
-  ]
+  outputs = [ "$bindings_output_dir/dart_ui/{{source_file_part}}" ]
 }
 
-if (is_fuchsia) {
-  dart_library("generate_package_map") {
-    # The sole purpose of this target is to generate a .packages file.
-    sources = []
-
-    infer_package_name = true
-
-    disable_analysis = true
-
-    deps = [
-      "//topaz/public/dart/fuchsia",
-      "//topaz/public/dart/zircon",
-    ]
-  }
-}
-
-action("generate_snapshot_bin") {
-  if (is_fuchsia) {
-    snapshot_dart = "snapshot_fuchsia.dart"
-    # TODO(rmacnak): Fuchsia cross builds use the wrong Dart target
-    # architecture, and have added steps that depend on this error for
-    # reasonable build times (e.g., invoking the analyzer).
-    if (target_cpu == host_cpu) {
-      snapshot_kind = "core-jit"
-    } else {
-      snapshot_kind = "core"
-    }
+compiled_action("generate_snapshot_bin") {
+  if (target_cpu == "x86" && host_os == "linux") {
+    # By default Dart will create a 32-bit gen_snapshot host binary if the target
+    # platform is 32-bit.  Override this to create a 64-bit gen_snapshot for x86
+    # targets because some host platforms may not support 32-bit binaries.
+    tool = "//third_party/dart/runtime/bin:gen_snapshot_host_targeting_host"
+    toolchain = "//build/toolchain/$host_os:clang_x64"
   } else {
-    snapshot_dart = "snapshot.dart"
-    snapshot_kind = "core"
+    tool = "//third_party/dart/runtime/bin:gen_snapshot"
   }
 
-  deps = [
-    ":generate_dart_ui",
-    "//third_party/dart/runtime/bin:gen_snapshot($host_toolchain)",
-  ]
-  depfile = "$target_gen_dir/core_snapshot.d"
+  platform_kernel = "$root_out_dir/flutter_patched_sdk/platform_strong.dill"
 
-  inputs = [
-             "//third_party/dart/runtime/tools/create_snapshot_bin.py",
-             snapshot_dart,
-           ] + dart_ui_files
-  if (is_fuchsia) {
-    deps += [ ":generate_package_map" ]
-    inputs += [ "fuchsia_compilation_trace.txt" ]
-  }
+  inputs = [ platform_kernel ]
+  deps = [ ":kernel_platform_files" ]
 
   vm_snapshot_data = "$target_gen_dir/vm_isolate_snapshot.bin"
   vm_snapshot_instructions = "$target_gen_dir/vm_snapshot_instructions.bin"
@@ -83,68 +45,24 @@ action("generate_snapshot_bin") {
     isolate_snapshot_instructions,
   ]
 
-  rebased_dart_ui_path = rebase_path(dart_ui_path)
-
-  gen_snapshot_dir =
-      get_label_info("//third_party/dart/runtime/bin:gen_snapshot($host_toolchain)",
-                     "root_out_dir")
-  script = "//third_party/dart/runtime/tools/create_snapshot_bin.py"
-
   args = [
-    "--executable",
-    rebase_path("$gen_snapshot_dir/gen_snapshot"),
-    "--script",
-    rebase_path(snapshot_dart),
-    "--snapshot_kind",
-    snapshot_kind,
-    "--vm_flag",
-    "--await_is_keyword",
-    "--vm_flag",
+    "--enable-experiment=non-nullable",
+    "--snapshot_kind=core",
     "--enable_mirrors=false",
-    "--vm_output_bin",
-    rebase_path(vm_snapshot_data, root_build_dir),
-    "--vm_instructions_output_bin",
-    rebase_path(vm_snapshot_instructions, root_build_dir),
-    "--isolate_output_bin",
-    rebase_path(isolate_snapshot_data, root_build_dir),
-    "--isolate_instructions_output_bin",
-    rebase_path(isolate_snapshot_instructions, root_build_dir),
-    "--url_mapping=dart:ui,$rebased_dart_ui_path",
-    "--vm_flag",
-    "--dependencies=" + rebase_path(depfile),
+    "--vm_snapshot_data=" + rebase_path(vm_snapshot_data),
+    "--vm_snapshot_instructions=" + rebase_path(vm_snapshot_instructions),
+    "--isolate_snapshot_data=" + rebase_path(isolate_snapshot_data),
+    "--isolate_snapshot_instructions=" +
+        rebase_path(isolate_snapshot_instructions),
   ]
 
-  if (is_debug) {
-    args += [
-      "--vm_flag",
-      "--enable_asserts",
-      "--vm_flag",
-      "--enable_type_checks",
-      "--vm_flag",
-      "--error_on_bad_type",
-      "--vm_flag",
-      "--error_on_bad_override",
-    ]
+  if (is_debug && flutter_runtime_mode != "profile" &&
+      flutter_runtime_mode != "release" &&
+      flutter_runtime_mode != "jit_release") {
+    args += [ "--enable_asserts" ]
   }
 
-  if (is_fuchsia) {
-    package_gen_dir = get_label_info(":bogus($dart_toolchain)",
-          "target_gen_dir")
-    package_file = "$package_gen_dir/generate_package_map.packages"
-    inputs += zircon_sdk_ext_files + mozart_dart_sdk_ext_files + [package_file]
-    zircon_path = rebase_path(zircon_sdk_ext_lib)
-    fuchsia_path = rebase_path(fuchsia_sdk_ext_lib)
-    mozart_internal_path = rebase_path(mozart_dart_sdk_ext_lib)
-    args += [
-      "--url_mapping=dart:zircon,$zircon_path",
-      "--url_mapping=dart:fuchsia,$fuchsia_path",
-      "--url_mapping=dart:mozart.internal,$mozart_internal_path",
-      "--packages",
-      rebase_path(package_file),
-      "--load_compilation_trace",
-      rebase_path("fuchsia_compilation_trace.txt"),
-    ]
-  }
+  args += [ rebase_path(platform_kernel) ]
 }
 
 # Generates an assembly file defining a given symbol with the bytes from a
@@ -153,23 +71,31 @@ action("generate_snapshot_bin") {
 template("bin_to_assembly") {
   assert(defined(invoker.deps), "Must define deps")
   assert(defined(invoker.input), "Must define input binary file")
-  assert(defined(invoker.output), "Must define output assembly file")
   assert(defined(invoker.symbol), "Must define symbol name")
   assert(defined(invoker.executable), "Must define boolean executable")
 
   action(target_name) {
     deps = invoker.deps
     script = "//third_party/dart/runtime/tools/bin_to_assembly.py"
+    output = invoker.input + ".S"
     args = [
       "--input",
       rebase_path(invoker.input),
       "--output",
-      rebase_path(invoker.output),
+      rebase_path(output),
       "--symbol_name",
       invoker.symbol,
       "--target_os",
       current_os,
     ]
+    if (defined(invoker.size_symbol)) {
+      args += [
+        "--size_symbol_name",
+        invoker.size_symbol,
+        "--target_arch",
+        current_cpu,
+      ]
+    }
     if (invoker.executable) {
       args += [ "--executable" ]
     }
@@ -177,139 +103,141 @@ template("bin_to_assembly") {
       script,
       invoker.input,
     ]
-    outputs = [
-      invoker.output,
-    ]
+    outputs = [ output ]
   }
 }
 
-bin_to_assembly("vm_snapshot_data_assembly") {
-  deps = [
-    ":generate_snapshot_bin",
-  ]
+# Generates an object file defining a given symbol with the bytes from a
+# binary file. Places the symbol in the read-only data section.
+template("bin_to_coff") {
+  assert(defined(invoker.deps), "Must define deps")
+  assert(defined(invoker.input), "Must define input binary file")
+  assert(defined(invoker.symbol), "Must define symbol name")
+  assert(defined(invoker.executable), "Must define executable")
+
+  action(target_name) {
+    deps = invoker.deps
+    script = "//third_party/dart/runtime/tools/bin_to_coff.py"
+    output = invoker.input + ".o"
+    args = [
+      "--input",
+      rebase_path(invoker.input),
+      "--output",
+      rebase_path(output),
+      "--symbol_name",
+      invoker.symbol,
+    ]
+
+    if (defined(invoker.size_symbol)) {
+      args += [
+        "--size_symbol_name",
+        invoker.size_symbol,
+      ]
+    }
+
+    if (invoker.executable) {
+      args += [ "--executable" ]
+    }
+
+    if (current_cpu == "x64") {
+      args += [ "--64-bit" ]
+    }
+    inputs = [ invoker.input ]
+    outputs = [ output ]
+  }
+}
+
+template("bin_to_linkable") {
+  assert(defined(invoker.deps), "Must define deps")
+  assert(defined(invoker.input), "Must define input binary file")
+  assert(defined(invoker.symbol), "Must define symbol name")
+  target_type = "bin_to_assembly"
+  if (is_win) {
+    target_type = "bin_to_coff"
+  }
+
+  target(target_type, target_name) {
+    forward_variables_from(invoker, "*")
+  }
+}
+
+bin_to_linkable("vm_snapshot_data_linkable") {
+  deps = [ ":generate_snapshot_bin" ]
   input = "$target_gen_dir/vm_isolate_snapshot.bin"
-  output = "$target_gen_dir/vm_snapshot_data.S"
   symbol = "kDartVmSnapshotData"
   executable = false
 }
 
-bin_to_assembly("vm_snapshot_instructions_assembly") {
-  deps = [
-    ":generate_snapshot_bin",
-  ]
+bin_to_linkable("vm_snapshot_instructions_linkable") {
+  deps = [ ":generate_snapshot_bin" ]
   input = "$target_gen_dir/vm_snapshot_instructions.bin"
-  output = "$target_gen_dir/vm_snapshot_instructions.S"
   symbol = "kDartVmSnapshotInstructions"
   executable = true
 }
 
-bin_to_assembly("isolate_snapshot_data_assembly") {
-  deps = [
-    ":generate_snapshot_bin",
-  ]
+bin_to_linkable("isolate_snapshot_data_linkable") {
+  deps = [ ":generate_snapshot_bin" ]
   input = "$target_gen_dir/isolate_snapshot.bin"
-  output = "$target_gen_dir/isolate_snapshot_data.S"
-  symbol = "kDartIsolateCoreSnapshotData"
+  symbol = "kDartIsolateSnapshotData"
   executable = false
 }
 
-bin_to_assembly("isolate_snapshot_instructions_assembly") {
-  deps = [
-    ":generate_snapshot_bin",
-  ]
+bin_to_linkable("isolate_snapshot_instructions_linkable") {
+  deps = [ ":generate_snapshot_bin" ]
   input = "$target_gen_dir/isolate_snapshot_instructions.bin"
-  output = "$target_gen_dir/isolate_snapshot_instructions.S"
-  symbol = "kDartIsolateCoreSnapshotInstructions"
+  symbol = "kDartIsolateSnapshotInstructions"
   executable = true
+}
+
+bin_to_linkable("platform_strong_dill_linkable") {
+  deps = [ ":kernel_platform_files" ]
+  input = "$root_out_dir/flutter_patched_sdk/platform_strong.dill"
+  symbol = "kPlatformStrongDill"
+  size_symbol = "kPlatformStrongDillSize"
+  executable = false
 }
 
 source_set("snapshot") {
   deps = [
-    ":isolate_snapshot_data_assembly",
-    ":isolate_snapshot_instructions_assembly",
-    ":vm_snapshot_data_assembly",
-    ":vm_snapshot_instructions_assembly",
+    ":isolate_snapshot_data_linkable",
+    ":isolate_snapshot_instructions_linkable",
+    ":platform_strong_dill_linkable",
+    ":vm_snapshot_data_linkable",
+    ":vm_snapshot_instructions_linkable",
   ]
-  sources = [
-    "$target_gen_dir/isolate_snapshot_data.S",
-    "$target_gen_dir/isolate_snapshot_instructions.S",
-    "$target_gen_dir/vm_snapshot_data.S",
-    "$target_gen_dir/vm_snapshot_instructions.S",
-  ]
-}
-
-compile_platform("non_strong_platform") {
-  sources = [
-    "libraries.json",
-  ]
-
-  outputs = [
-    "$root_out_dir/flutter_patched_sdk/platform.dill",
-    "$root_out_dir/flutter_patched_sdk/vm_outline.dill",
-  ]
-
-  args = [
-            "--target=flutter",
-            "dart:core",
-         ]
+  sources = get_target_outputs(":isolate_snapshot_data_linkable") +
+            get_target_outputs(":isolate_snapshot_instructions_linkable") +
+            get_target_outputs(":vm_snapshot_data_linkable") +
+            get_target_outputs(":vm_snapshot_instructions_linkable") +
+            get_target_outputs(":platform_strong_dill_linkable")
 }
 
 compile_platform("strong_platform") {
-  sources = [
-    "libraries.json",
-  ]
+  single_root_scheme = "org-dartlang-sdk"
+  single_root_base = rebase_path("../../../")
+  libraries_specification_uri =
+      "org-dartlang-sdk:///flutter/lib/snapshot/libraries.json"
 
   outputs = [
     "$root_out_dir/flutter_patched_sdk/platform_strong.dill",
     "$root_out_dir/flutter_patched_sdk/vm_outline_strong.dill",
   ]
 
+  is_runtime_mode_release =
+      flutter_runtime_mode == "release" || flutter_runtime_mode == "jit_release"
+  allow_causal_async_stacks = !is_runtime_mode_release
   args = [
-            "--target=flutter",
-            "--strong",
-            "dart:core"
-         ]
+    "--enable-experiment=non-nullable",
+    "--nnbd-agnostic",
+    "--target=flutter",
+    "-Ddart.vm.product=$is_runtime_mode_release",
+    "-Ddart.developer.causal_async_stacks=$allow_causal_async_stacks",
+    "-Ddart.isVM=true",
+    "dart:core",
+  ]
 }
 
+# Fuchsia's snapshot requires a different platform with extra dart: libraries.
 group("kernel_platform_files") {
-  public_deps = [
-    ":non_strong_platform",
-    ":strong_platform",
-  ]
-}
-
-generate_entry_points_json_with_gen_snapshot("entry_points_json") {
-  input = "$flutter_root/lib/snapshot/snapshot.dart"
-  output = "$root_out_dir/dart_entry_points/entry_points.json"
-  dart_ui = "$flutter_root/lib/ui/ui.dart"
-  vmservice_io = "//third_party/dart/runtime/bin/vmservice/vmservice_io.dart"
-  dart_vm_entry_points_txt = "$flutter_root/runtime/dart_vm_entry_points.txt"
-  dart_io_entries_txt = "//third_party/dart/runtime/bin/dart_io_entries.txt"
-
-  extra_inputs = [
-    dart_ui,
-    vmservice_io,
-    dart_vm_entry_points_txt,
-    dart_io_entries_txt,
-  ]
-
-  extra_args = [
-    "--await_is_keyword",
-    "--url_mapping=dart:ui," + rebase_path(dart_ui),
-    "--url_mapping=dart:vmservice_io," + rebase_path(vmservice_io),
-    "--causal_async_stacks",
-    "--embedder_entry_points_manifest=" + rebase_path(dart_vm_entry_points_txt),
-    "--embedder_entry_points_manifest=" + rebase_path(dart_io_entries_txt),
-  ]
-}
-
-copy_entry_points_extra_json("entry_points_extra_json") {
-  output = "$root_out_dir/dart_entry_points/entry_points_extra.json"
-}
-
-group("entry_points_json_files") {
-  public_deps = [
-    ":entry_points_json",
-    ":entry_points_extra_json",
-  ]
+  public_deps = [ ":strong_platform" ]
 }

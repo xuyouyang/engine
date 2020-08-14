@@ -1,8 +1,10 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Flutter Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "flutter/shell/platform/darwin/ios/framework/Source/FlutterPlatformPlugin.h"
+#include "flutter/fml/logging.h"
+#include "flutter/shell/platform/darwin/ios/framework/Source/FlutterViewController_Internal.h"
 
 #include <AudioToolbox/AudioToolbox.h>
 #include <Foundation/Foundation.h>
@@ -12,10 +14,11 @@
 namespace {
 
 constexpr char kTextPlainFormat[] = "text/plain";
+const UInt32 kKeyPressClickSoundId = 1306;
 
 }  // namespaces
 
-namespace shell {
+namespace flutter {
 
 // TODO(abarth): Move these definitions from system_chrome_impl.cc to here.
 const char* const kOrientationUpdateNotificationName =
@@ -27,11 +30,30 @@ const char* const kOverlayStyleUpdateNotificationName =
 const char* const kOverlayStyleUpdateNotificationKey =
     "io.flutter.plugin.platform.SystemChromeOverlayNotificationKey";
 
-}  // namespace shell
+}  // namespace flutter
 
-using namespace shell;
+using namespace flutter;
 
-@implementation FlutterPlatformPlugin
+@implementation FlutterPlatformPlugin {
+  fml::WeakPtr<FlutterEngine> _engine;
+}
+
+- (instancetype)init {
+  @throw([NSException exceptionWithName:@"FlutterPlatformPlugin must initWithEngine"
+                                 reason:nil
+                               userInfo:nil]);
+}
+
+- (instancetype)initWithEngine:(fml::WeakPtr<FlutterEngine>)engine {
+  FML_DCHECK(engine) << "engine must be set";
+  self = [super init];
+
+  if (self) {
+    _engine = engine;
+  }
+
+  return self;
+}
 
 - (void)handleMethodCall:(FlutterMethodCall*)call result:(FlutterResult)result {
   NSString* method = call.method;
@@ -51,17 +73,23 @@ using namespace shell;
   } else if ([method isEqualToString:@"SystemChrome.setEnabledSystemUIOverlays"]) {
     [self setSystemChromeEnabledSystemUIOverlays:args];
     result(nil);
+  } else if ([method isEqualToString:@"SystemChrome.restoreSystemUIOverlays"]) {
+    [self restoreSystemChromeSystemUIOverlays];
+    result(nil);
   } else if ([method isEqualToString:@"SystemChrome.setSystemUIOverlayStyle"]) {
     [self setSystemChromeSystemUIOverlayStyle:args];
     result(nil);
   } else if ([method isEqualToString:@"SystemNavigator.pop"]) {
-    [self popSystemNavigator];
+    NSNumber* isAnimated = args;
+    [self popSystemNavigator:isAnimated.boolValue];
     result(nil);
   } else if ([method isEqualToString:@"Clipboard.getData"]) {
     result([self getClipboardData:args]);
   } else if ([method isEqualToString:@"Clipboard.setData"]) {
     [self setClipboardData:args];
     result(nil);
+  } else if ([method isEqualToString:@"Clipboard.hasStrings"]) {
+    result([self clipboardHasStrings]);
   } else {
     result(FlutterMethodNotImplemented);
   }
@@ -70,9 +98,8 @@ using namespace shell;
 - (void)playSystemSound:(NSString*)soundType {
   if ([soundType isEqualToString:@"SystemSoundType.click"]) {
     // All feedback types are specific to Android and are treated as equal on
-    // iOS. The surface must (and does) adopt the UIInputViewAudioFeedback
-    // protocol
-    [[UIDevice currentDevice] playInputClick];
+    // iOS.
+    AudioServicesPlaySystemSound(kKeyPressClickSoundId);
   }
 }
 
@@ -83,14 +110,17 @@ using namespace shell;
   }
 
   if (@available(iOS 10, *)) {
-    if ([@"HapticFeedbackType.lightImpact" isEqualToString: feedbackType]) {
-      [[[UIImpactFeedbackGenerator alloc] initWithStyle:UIImpactFeedbackStyleLight] impactOccurred];
-    } else if ([@"HapticFeedbackType.mediumImpact" isEqualToString: feedbackType]) {
-      [[[UIImpactFeedbackGenerator alloc] initWithStyle:UIImpactFeedbackStyleMedium] impactOccurred];
-    } else if ([@"HapticFeedbackType.heavyImpact" isEqualToString: feedbackType]) {
-      [[[UIImpactFeedbackGenerator alloc] initWithStyle:UIImpactFeedbackStyleHeavy] impactOccurred];
-    } else if ([@"HapticFeedbackType.selectionClick" isEqualToString: feedbackType]) {
-      [[[UISelectionFeedbackGenerator alloc] init] selectionChanged];
+    if ([@"HapticFeedbackType.lightImpact" isEqualToString:feedbackType]) {
+      [[[[UIImpactFeedbackGenerator alloc] initWithStyle:UIImpactFeedbackStyleLight] autorelease]
+          impactOccurred];
+    } else if ([@"HapticFeedbackType.mediumImpact" isEqualToString:feedbackType]) {
+      [[[[UIImpactFeedbackGenerator alloc] initWithStyle:UIImpactFeedbackStyleMedium] autorelease]
+          impactOccurred];
+    } else if ([@"HapticFeedbackType.heavyImpact" isEqualToString:feedbackType]) {
+      [[[[UIImpactFeedbackGenerator alloc] initWithStyle:UIImpactFeedbackStyleHeavy] autorelease]
+          impactOccurred];
+    } else if ([@"HapticFeedbackType.selectionClick" isEqualToString:feedbackType]) {
+      [[[[UISelectionFeedbackGenerator alloc] init] autorelease] selectionChanged];
     }
   }
 }
@@ -115,11 +145,10 @@ using namespace shell;
 
   if (!mask)
     return;
-  [[NSNotificationCenter defaultCenter] postNotificationName:@(kOrientationUpdateNotificationName)
-                                                      object:nil
-                                                    userInfo:@{
-                                                      @(kOrientationUpdateNotificationKey) : @(mask)
-                                                    }];
+  [[NSNotificationCenter defaultCenter]
+      postNotificationName:@(kOrientationUpdateNotificationName)
+                    object:nil
+                  userInfo:@{@(kOrientationUpdateNotificationKey) : @(mask)}];
 }
 
 - (void)setSystemChromeApplicationSwitcherDescription:(NSDictionary*)object {
@@ -135,16 +164,38 @@ using namespace shell;
   // UIViewControllerBasedStatusBarAppearance
   [UIApplication sharedApplication].statusBarHidden =
       ![overlays containsObject:@"SystemUiOverlay.top"];
+  if ([overlays containsObject:@"SystemUiOverlay.bottom"]) {
+    [[NSNotificationCenter defaultCenter]
+        postNotificationName:FlutterViewControllerShowHomeIndicator
+                      object:nil];
+  } else {
+    [[NSNotificationCenter defaultCenter]
+        postNotificationName:FlutterViewControllerHideHomeIndicator
+                      object:nil];
+  }
 }
 
-- (void)setSystemChromeSystemUIOverlayStyle:(NSString*)style {
-  UIStatusBarStyle statusBarStyle;
-  if ([style isEqualToString:@"SystemUiOverlayStyle.light"])
-    statusBarStyle = UIStatusBarStyleLightContent;
-  else if ([style isEqualToString:@"SystemUiOverlayStyle.dark"])
-    statusBarStyle = UIStatusBarStyleDefault;
-  else
+- (void)restoreSystemChromeSystemUIOverlays {
+  // Nothing to do on iOS.
+}
+
+- (void)setSystemChromeSystemUIOverlayStyle:(NSDictionary*)message {
+  NSString* brightness = message[@"statusBarBrightness"];
+  if (brightness == (id)[NSNull null])
     return;
+
+  UIStatusBarStyle statusBarStyle;
+  if ([brightness isEqualToString:@"Brightness.dark"]) {
+    statusBarStyle = UIStatusBarStyleLightContent;
+  } else if ([brightness isEqualToString:@"Brightness.light"]) {
+    if (@available(iOS 13, *)) {
+      statusBarStyle = UIStatusBarStyleDarkContent;
+    } else {
+      statusBarStyle = UIStatusBarStyleDefault;
+    }
+  } else {
+    return;
+  }
 
   NSNumber* infoValue = [[NSBundle mainBundle]
       objectForInfoDictionaryKey:@"UIViewControllerBasedStatusBarAppearance"];
@@ -155,9 +206,7 @@ using namespace shell;
     [[NSNotificationCenter defaultCenter]
         postNotificationName:@(kOverlayStyleUpdateNotificationName)
                       object:nil
-                    userInfo:@{
-                      @(kOverlayStyleUpdateNotificationKey) : @(statusBarStyle)
-                    }];
+                    userInfo:@{@(kOverlayStyleUpdateNotificationKey) : @(statusBarStyle)}];
   } else {
     // Note: -[UIApplication setStatusBarStyle] is deprecated in iOS9
     // in favor of delegating to the view controller
@@ -165,13 +214,20 @@ using namespace shell;
   }
 }
 
-- (void)popSystemNavigator {
+- (void)popSystemNavigator:(BOOL)isAnimated {
   // Apple's human user guidelines say not to terminate iOS applications. However, if the
   // root view of the app is a navigation controller, it is instructed to back up a level
   // in the navigation hierarchy.
+  // It's also possible in an Add2App scenario that the FlutterViewController was presented
+  // outside the context of a UINavigationController, and still wants to be popped.
   UIViewController* viewController = [UIApplication sharedApplication].keyWindow.rootViewController;
   if ([viewController isKindOfClass:[UINavigationController class]]) {
-    [((UINavigationController*)viewController) popViewControllerAnimated:NO];
+    [((UINavigationController*)viewController) popViewControllerAnimated:isAnimated];
+  } else {
+    auto engineViewController = static_cast<UIViewController*>([_engine.get() viewController]);
+    if (engineViewController != viewController) {
+      [engineViewController dismissViewControllerAnimated:isAnimated completion:nil];
+    }
   }
 }
 
@@ -187,7 +243,23 @@ using namespace shell;
 
 - (void)setClipboardData:(NSDictionary*)data {
   UIPasteboard* pasteboard = [UIPasteboard generalPasteboard];
-  pasteboard.string = data[@"text"];
+  if (data[@"text"]) {
+    pasteboard.string = data[@"text"];
+  } else {
+    pasteboard.string = @"null";
+  }
+}
+
+- (NSDictionary*)clipboardHasStrings {
+  bool hasStrings = false;
+  UIPasteboard* pasteboard = [UIPasteboard generalPasteboard];
+  if (@available(iOS 10, *)) {
+    hasStrings = pasteboard.hasStrings;
+  } else {
+    NSString* stringInPasteboard = pasteboard.string;
+    hasStrings = stringInPasteboard != nil;
+  }
+  return @{@"value" : @(hasStrings)};
 }
 
 @end

@@ -1,4 +1,4 @@
-// Copyright (c) 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Flutter Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,7 +7,7 @@
 
 #include <Block.h>
 
-#include "lib/fxl/compiler_specific.h"
+#include "flutter/fml/compiler_specific.h"
 
 namespace fml {
 
@@ -19,7 +19,7 @@ enum class OwnershipPolicy {
   // ownership claim.
   Assume,
 
-  // The scoped object will retain the the object and any initial ownership is
+  // The scoped object will retain the object and any initial ownership is
   // not changed.
   Retain,
 };
@@ -72,7 +72,7 @@ class ScopedBlock {
     block_ = temp;
   }
 
-  B release() FXL_WARN_UNUSED_RESULT {
+  [[nodiscard]] B release() {
     B temp = block_;
     block_ = nullptr;
     return temp;

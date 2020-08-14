@@ -1,17 +1,17 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Flutter Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "flutter/vulkan/vulkan_device.h"
+#include "vulkan_device.h"
 
 #include <limits>
 #include <map>
 #include <vector>
 
-#include "flutter/vulkan/vulkan_proc_table.h"
-#include "flutter/vulkan/vulkan_surface.h"
-#include "flutter/vulkan/vulkan_utilities.h"
 #include "third_party/skia/include/gpu/vk/GrVkBackendContext.h"
+#include "vulkan_proc_table.h"
+#include "vulkan_surface.h"
+#include "vulkan_utilities.h"
 
 namespace vulkan {
 
@@ -30,11 +30,13 @@ static uint32_t FindGraphicsQueueIndex(
 }
 
 VulkanDevice::VulkanDevice(VulkanProcTable& p_vk,
-                           VulkanHandle<VkPhysicalDevice> physical_device)
+                           VulkanHandle<VkPhysicalDevice> physical_device,
+                           bool enable_validation_layers)
     : vk(p_vk),
       physical_device_(std::move(physical_device)),
       graphics_queue_index_(std::numeric_limits<uint32_t>::max()),
-      valid_(false) {
+      valid_(false),
+      enable_validation_layers_(enable_validation_layers) {
   if (!physical_device_ || !vk.AreInstanceProcsSetup()) {
     return;
   }
@@ -42,7 +44,7 @@ VulkanDevice::VulkanDevice(VulkanProcTable& p_vk,
   graphics_queue_index_ = FindGraphicsQueueIndex(GetQueueFamilyProperties());
 
   if (graphics_queue_index_ == kVulkanInvalidGraphicsQueueIndex) {
-    FXL_DLOG(INFO) << "Could not find the graphics queue index.";
+    FML_DLOG(INFO) << "Could not find the graphics queue index.";
     return;
   }
 
@@ -58,16 +60,20 @@ VulkanDevice::VulkanDevice(VulkanProcTable& p_vk,
   };
 
   const char* extensions[] = {
+#if OS_ANDROID
     VK_KHR_SWAPCHAIN_EXTENSION_NAME,
+#endif
 #if OS_FUCHSIA
     VK_KHR_EXTERNAL_MEMORY_EXTENSION_NAME,
-    VK_KHR_EXTERNAL_MEMORY_FUCHSIA_EXTENSION_NAME,
+    VK_FUCHSIA_EXTERNAL_MEMORY_EXTENSION_NAME,
     VK_KHR_EXTERNAL_SEMAPHORE_EXTENSION_NAME,
-    VK_KHR_EXTERNAL_SEMAPHORE_FUCHSIA_EXTENSION_NAME,
+    VK_FUCHSIA_EXTERNAL_SEMAPHORE_EXTENSION_NAME,
+    VK_KHR_GET_MEMORY_REQUIREMENTS_2_EXTENSION_NAME,
 #endif
   };
 
-  auto enabled_layers = DeviceLayersToEnable(vk, physical_device_);
+  auto enabled_layers =
+      DeviceLayersToEnable(vk, physical_device_, enable_validation_layers_);
 
   const char* layers[enabled_layers.size()];
 
@@ -92,7 +98,7 @@ VulkanDevice::VulkanDevice(VulkanProcTable& p_vk,
 
   if (VK_CALL_LOG_ERROR(vk.CreateDevice(physical_device_, &create_info, nullptr,
                                         &device)) != VK_SUCCESS) {
-    FXL_DLOG(INFO) << "Could not create device.";
+    FML_DLOG(INFO) << "Could not create device.";
     return;
   }
 
@@ -100,7 +106,7 @@ VulkanDevice::VulkanDevice(VulkanProcTable& p_vk,
              [this](VkDevice device) { vk.DestroyDevice(device, nullptr); }};
 
   if (!vk.SetupDeviceProcAddresses(device_)) {
-    FXL_DLOG(INFO) << "Could not setup device proc addresses.";
+    FML_DLOG(INFO) << "Could not setup device proc addresses.";
     return;
   }
 
@@ -109,7 +115,7 @@ VulkanDevice::VulkanDevice(VulkanProcTable& p_vk,
   vk.GetDeviceQueue(device_, graphics_queue_index_, 0, &queue);
 
   if (queue == VK_NULL_HANDLE) {
-    FXL_DLOG(INFO) << "Could not get the device queue handle.";
+    FML_DLOG(INFO) << "Could not get the device queue handle.";
     return;
   }
 
@@ -126,7 +132,7 @@ VulkanDevice::VulkanDevice(VulkanProcTable& p_vk,
   if (VK_CALL_LOG_ERROR(vk.CreateCommandPool(device_, &command_pool_create_info,
                                              nullptr, &command_pool)) !=
       VK_SUCCESS) {
-    FXL_DLOG(INFO) << "Could not create the command pool.";
+    FML_DLOG(INFO) << "Could not create the command pool.";
     return;
   }
 
@@ -138,7 +144,7 @@ VulkanDevice::VulkanDevice(VulkanProcTable& p_vk,
 }
 
 VulkanDevice::~VulkanDevice() {
-  FXL_ALLOW_UNUSED_LOCAL(WaitIdle());
+  FML_ALLOW_UNUSED_LOCAL(WaitIdle());
 }
 
 bool VulkanDevice::IsValid() const {
@@ -177,6 +183,7 @@ uint32_t VulkanDevice::GetGraphicsQueueIndex() const {
 bool VulkanDevice::GetSurfaceCapabilities(
     const VulkanSurface& surface,
     VkSurfaceCapabilitiesKHR* capabilities) const {
+#if OS_ANDROID
   if (!surface.IsValid() || capabilities == nullptr) {
     return false;
   }
@@ -206,6 +213,9 @@ bool VulkanDevice::GetSurfaceCapabilities(
   capabilities->currentExtent.width = size.width();
   capabilities->currentExtent.height = size.height();
   return true;
+#else
+  return false;
+#endif
 }
 
 bool VulkanDevice::GetPhysicalDeviceFeatures(
@@ -262,6 +272,7 @@ std::vector<VkQueueFamilyProperties> VulkanDevice::GetQueueFamilyProperties()
 int VulkanDevice::ChooseSurfaceFormat(const VulkanSurface& surface,
                                       std::vector<VkFormat> desired_formats,
                                       VkSurfaceFormatKHR* format) const {
+#if OS_ANDROID
   if (!surface.IsValid() || format == nullptr) {
     return -1;
   }
@@ -297,7 +308,7 @@ int VulkanDevice::ChooseSurfaceFormat(const VulkanSurface& surface,
       return static_cast<int>(i);
     }
   }
-
+#endif
   return -1;
 }
 
@@ -311,7 +322,7 @@ bool VulkanDevice::ChoosePresentMode(const VulkanSurface& surface,
   // VK_PRESENT_MODE_FIFO_KHR is preferable on mobile platforms. The problems
   // mentioned in the ticket w.r.t the application being faster that the refresh
   // rate of the screen should not be faced by any Flutter platforms as they are
-  // powered by Vsync pulses instead of depending the the submit to block.
+  // powered by Vsync pulses instead of depending the submit to block.
   // However, for platforms that don't have VSync providers setup, it is better
   // to fall back to FIFO. For platforms that do have VSync providers, there
   // should be little difference. In case there is a need for a mode other than

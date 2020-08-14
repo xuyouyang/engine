@@ -1,4 +1,4 @@
-# Copyright 2016 The Chromium Authors. All rights reserved.
+# Copyright 2013 The Flutter Authors. All rights reserved.
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
@@ -9,17 +9,13 @@ source_set("io") {
   ]
 
   deps = [
+    "//flutter/fml",
+    "//flutter/third_party/tonic",
     "//third_party/dart/runtime:dart_api",
-    "//third_party/dart/runtime/bin:embedded_dart_io",
-    "//garnet/public/lib/fxl",
-    "//topaz/lib/tonic/converter",
+    "//third_party/dart/runtime/bin:dart_io_api",
   ]
 
-  configs += [
-    "//third_party/dart/runtime:dart_config",
-  ]
+  configs += [ "//third_party/dart/runtime:dart_config" ]
 
-  public_configs = [
-    "$flutter_root:config",
-  ]
+  public_configs = [ "//flutter:config" ]
 }
